@@ -1,10 +1,10 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, SafeAreaView, TouchableOpacity, TextInput, RefreshControl, Modal, Alert } from 'react-native';
+import React, { useEffect, useState, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, SafeAreaView, TouchableOpacity, TextInput, RefreshControl, Modal, Alert, ActivityIndicator } from 'react-native';
 import { useAuth } from '../../../contexts/AuthContext';
 import { supabase } from '../../../lib/supabase';
 import { Transfer } from '../../../types/database';
-import { useRouter } from 'expo-router';
-import { Search, MapPin, Clock, Users, Filter, X } from 'lucide-react-native';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { Search, MapPin, Clock, Users, Filter, X, Car, Star, MessageSquare } from 'lucide-react-native';
 
 type TransferWithDetails = Transfer & {
   transfer_types: {
@@ -15,6 +15,12 @@ type TransferWithDetails = Transfer & {
   profiles: {
     full_name: string;
     avatar_url: string;
+    average_rating: number | null;
+    reviews_count: number;
+  },
+  vehicles: {
+    model: string;
+    plate: string;
   }
 };
 
@@ -26,10 +32,11 @@ export default function TransfersScreen() {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
-  // Estados para o modal de solicitação
   const [isModalVisible, setModalVisible] = useState(false);
   const [selectedTransfer, setSelectedTransfer] = useState<TransferWithDetails | null>(null);
   const [seatsToRequest, setSeatsToRequest] = useState('1');
+
+  const [isObsModalVisible, setObsModalVisible] = useState(false);
 
   const fetchTransfers = async () => {
     setLoading(true);
@@ -45,7 +52,13 @@ export default function TransfersScreen() {
           ),
           profiles!transfers_creator_id_fkey (
             full_name,
-            avatar_url
+            avatar_url,
+            average_rating,
+            reviews_count
+          ),
+          vehicles (
+            model,
+            plate
           )
         `)
         .eq('visibility', 'public')
@@ -64,9 +77,9 @@ export default function TransfersScreen() {
     }
   };
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
     fetchTransfers();
-  }, []);
+  }, []));
 
   useEffect(() => {
     if (searchQuery.trim() === '') {
@@ -86,6 +99,11 @@ export default function TransfersScreen() {
     setSelectedTransfer(transfer);
     setSeatsToRequest('1');
     setModalVisible(true);
+  };
+
+  const openObsModal = (transfer: TransferWithDetails) => {
+    setSelectedTransfer(transfer);
+    setObsModalVisible(true);
   };
 
   const handleConfirmParticipation = async () => {
@@ -142,9 +160,26 @@ export default function TransfersScreen() {
     return transfer.total_seats - transfer.occupied_seats;
   };
 
+  const renderStarsRating = (rating: number) => {
+    const stars = [];
+    for (let i = 1; i <= 5; i++) {
+      stars.push(
+        <Star key={i} size={14} color="#f59e0b" fill={i <= rating ? '#f59e0b' : '#e5e7eb'} />
+      );
+    }
+    return <View style={styles.starsContainer}>{stars}</View>;
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator size="large" color="#2563eb" />
+      </View>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
-      {/* Modal de Solicitação de Vagas */}
       <Modal
         animationType="fade"
         transparent={true}
@@ -179,6 +214,27 @@ export default function TransfersScreen() {
         </View>
       </Modal>
 
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={isObsModalVisible}
+        onRequestClose={() => setObsModalVisible(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Observações do Transfer</Text>
+              <TouchableOpacity onPress={() => setObsModalVisible(false)}>
+                <X size={24} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView>
+              <Text style={styles.obsText}>{selectedTransfer?.observations || 'Nenhuma observação informada.'}</Text>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
       <View style={styles.header}>
         <Text style={styles.title}>Vitrine de Transfers</Text>
         <Text style={styles.subtitle}>Encontre e participe de viagens</Text>
@@ -195,7 +251,7 @@ export default function TransfersScreen() {
         {filteredTransfers.length > 0 ? (
           filteredTransfers.map((transfer) => (
             <View key={transfer.id} style={styles.transferCard}>
-              <TouchableOpacity onPress={() => router.push(`/(app)/transfer-details/${transfer.id}`)}>
+              <TouchableOpacity onPress={() => router.push({ pathname: '/(app)/transfer-details/[id]', params: { id: transfer.id } })}>
                 <View style={styles.transferHeader}>
                   <Text style={styles.transferTitle}>{transfer.transfer_types.title}</Text>
                   <View style={styles.priceContainer}>
@@ -203,6 +259,22 @@ export default function TransfersScreen() {
                     <Text style={styles.priceLabel}>por vaga</Text>
                   </View>
                 </View>
+                
+                <View style={styles.vehicleInfoContainer}>
+                  {transfer.vehicles && (
+                    <View style={styles.vehicleInfoItem}>
+                      <Car size={16} color="#64748b" />
+                      <Text style={styles.vehicleInfoText}>{transfer.vehicles.model} ({transfer.vehicles.plate})</Text>
+                    </View>
+                  )}
+                  {transfer.profiles && (
+                    <View style={styles.vehicleInfoItem}>
+                      {renderStarsRating(transfer.profiles.average_rating || 0)}
+                      <Text style={styles.vehicleInfoText}>{transfer.profiles.average_rating?.toFixed(1) || 'N/A'} ({transfer.profiles.reviews_count} avaliações)</Text>
+                    </View>
+                  )}
+                </View>
+
                 <View style={styles.routeContainer}>
                   <View style={styles.routeItem}><MapPin size={16} color="#64748b" /><Text style={styles.routeText} numberOfLines={1}>{transfer.transfer_types.origin_description}</Text></View>
                   <Text style={styles.routeArrow}>→</Text>
@@ -217,6 +289,11 @@ export default function TransfersScreen() {
                 <View style={styles.creatorInfo}>
                   <View style={styles.avatarPlaceholder}><Text style={styles.avatarText}>{(transfer.profiles?.full_name?.charAt(0) || 'U')}</Text></View>
                   <Text style={styles.creatorName}>{transfer.profiles?.full_name || 'Usuário'}</Text>
+                  {transfer.observations && (
+                      <TouchableOpacity onPress={() => openObsModal(transfer)} style={styles.obsButton}>
+                          <MessageSquare size={16} color="#64748b" />
+                      </TouchableOpacity>
+                  )}
                 </View>
                 <TouchableOpacity
                   style={[styles.participateButton, transfer.status === 'full' && styles.disabledButton]}
@@ -288,4 +365,25 @@ const styles = StyleSheet.create({
     modalInput: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 8, padding: 12, fontSize: 16, marginBottom: 24 },
     confirmButton: { backgroundColor: '#10b981', paddingVertical: 14, borderRadius: 8, alignItems: 'center' },
     confirmButtonText: { color: '#ffffff', fontSize: 16, fontWeight: '600' },
+    // ✅ NOVOS ESTILOS
+    vehicleInfoContainer: { flexDirection: 'row', gap: 24, marginBottom: 16 },
+    vehicleInfoItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    vehicleInfoText: { fontSize: 14, color: '#64748b' },
+    starsContainer: { flexDirection: 'row', gap: 2 },
+    // Estilo para o estado de carregamento
+    centered: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    obsButton: {
+      padding: 6,
+      borderRadius: 8,
+      backgroundColor: '#e2e8f0',
+    },
+    obsText: {
+      fontSize: 16,
+      color: '#1e293b',
+      lineHeight: 24,
+    },
 });

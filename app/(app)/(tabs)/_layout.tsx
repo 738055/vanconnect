@@ -1,10 +1,26 @@
 import { Tabs } from 'expo-router';
 import { useAuth } from '../../../contexts/AuthContext';
-import { Home, Search, Plus, User, Building2 as Building } from 'lucide-react-native';
+import { Home, Search, Plus, User, Bell, Building2 as Building } from 'lucide-react-native';
+import { View, Text, StyleSheet } from 'react-native';
+import { useNotifications } from '../../../contexts/NotificationContext';
+
+const bellIcon = (size: number, color: string, notificationCount: number) => {
+  return (
+    <View style={styles.iconContainer}>
+      <Bell size={size} color={color} />
+      {notificationCount > 0 && (
+        <View style={styles.badge}>
+          <Text style={styles.badgeText}>{notificationCount > 9 ? '9+' : notificationCount}</Text>
+        </View>
+      )}
+    </View>
+  );
+};
 
 export default function TabLayout() {
   const { subscription } = useAuth();
-  
+  const { unreadCount } = useNotifications();
+
   const isPro = subscription?.plan === 'pro';
   const isEnterprise = subscription?.plan === 'enterprise';
 
@@ -38,7 +54,6 @@ export default function TabLayout() {
         }}
       />
 
-      {/* ✅ ALTERAÇÃO: A aba 'Transfers' agora é visível para todos */}
       <Tabs.Screen
         name="transfers"
         options={{
@@ -49,7 +64,6 @@ export default function TabLayout() {
         }}
       />
 
-      {/* A aba 'Criar' continua visível apenas para Pro e Enterprise */}
       {(isPro || isEnterprise) ? (
         <Tabs.Screen
           name="create"
@@ -62,7 +76,6 @@ export default function TabLayout() {
         />
       ) : null}
 
-      {/* A aba 'Dashboard' continua visível apenas para Enterprise */}
       {isEnterprise ? (
         <Tabs.Screen
           name="dashboard"
@@ -84,6 +97,40 @@ export default function TabLayout() {
           ),
         }}
       />
+      
+      {/*
+        O aviso acontece aqui porque o Expo Router já cria a rota "notifications"
+        automaticamente com base no arquivo `app/(app)/(tabs)/notifications/index.tsx`.
+      */}
+      <Tabs.Screen
+        name="notifications"
+        options={{
+          title: 'Notificações',
+          tabBarIcon: ({ size, color }) => bellIcon(size, color, unreadCount),
+        }}
+      />
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  iconContainer: {
+    position: 'relative',
+  },
+  badge: {
+    position: 'absolute',
+    right: -6,
+    top: -3,
+    backgroundColor: '#ef4444',
+    borderRadius: 8,
+    width: 16,
+    height: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  badgeText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+});

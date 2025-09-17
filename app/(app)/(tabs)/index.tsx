@@ -1,17 +1,27 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, SafeAreaView, TouchableOpacity, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, SafeAreaView, TouchableOpacity, RefreshControl, ActivityIndicator } from 'react-native';
 import { useAuth } from '../../../contexts/AuthContext';
 import { supabase } from '../../../lib/supabase';
 import { Transfer } from '../../../types/database';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
-import { Truck, TrendingUp, Users, Star, Crown, Zap } from 'lucide-react-native';
+import { Truck, TrendingUp, Users, Star, Crown, Zap, Car, MapPin, Clock } from 'lucide-react-native';
 
 type TransferWithDetails = Transfer & {
   transfer_types: {
     title: string;
     origin_description: string;
     destination_description: string;
+  },
+  profiles: {
+    full_name: string;
+    avatar_url: string;
+    average_rating: number | null;
+    reviews_count: number;
+  },
+  vehicles: {
+    model: string;
+    plate: string;
   }
 };
 
@@ -30,6 +40,12 @@ export default function HomeScreen() {
     if (!profile) return;
     setLoading(true);
     try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const dayAfterTomorrow = new Date(today);
+      dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2);
+      
       const { data: transfersData, error: transfersError } = await supabase
         .from('transfers')
         .select(`
@@ -38,11 +54,21 @@ export default function HomeScreen() {
             title,
             origin_description,
             destination_description
+          ),
+          profiles!transfers_creator_id_fkey (
+            full_name,
+            avatar_url,
+            average_rating,
+            reviews_count
+          ),
+          vehicles (
+            model,
+            plate
           )
         `)
-        .eq('creator_id', profile.id)
-        .order('created_at', { ascending: false })
-        .limit(5);
+        .gte('departure_time', today.toISOString())
+        .lt('departure_time', dayAfterTomorrow.toISOString())
+        .order('departure_time', { ascending: true });
 
       if (transfersError) throw transfersError;
       setRecentTransfers(transfersData as TransferWithDetails[] || []);
@@ -169,22 +195,47 @@ export default function HomeScreen() {
       </View>
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Transfers Recentes</Text>
+          <Text style={styles.sectionTitle}>Próximos Transfers (Hoje e Amanhã)</Text>
           <TouchableOpacity onPress={() => router.push('/(app)/(tabs)/transfers')}>
             <Text style={styles.sectionLink}>Ver todos</Text>
           </TouchableOpacity>
         </View>
-        {recentTransfers.length > 0 ? (
+        {loading ? (
+           <View style={styles.emptyState}>
+             <ActivityIndicator size="large" color="#2563eb" />
+           </View>
+        ) : recentTransfers.length > 0 ? (
           recentTransfers.map((transfer) => (
-            <TouchableOpacity key={transfer.id} style={styles.transferCard} onPress={() => router.push(`/(app)/transfer-details/${transfer.id}`)}>
+            <TouchableOpacity 
+              key={transfer.id} 
+              style={styles.transferCard} 
+              onPress={() => router.push({ pathname: '/(app)/transfer-details/[id]', params: { id: transfer.id } })}
+            >
               <View style={styles.transferHeader}>
                 <Text style={styles.transferTitle}>{transfer.transfer_types.title}</Text>
                 <View style={[styles.statusBadge, { backgroundColor: getStatusColor(transfer.status) }]}>
                   <Text style={styles.statusText}>{getStatusLabel(transfer.status)}</Text>
                 </View>
               </View>
+              
+              <View style={styles.creatorInfo}>
+                {transfer.profiles && (
+                  <>
+                    <View style={styles.avatarPlaceholder}>
+                      <Text style={styles.avatarText}>{transfer.profiles.full_name?.charAt(0) || 'U'}</Text>
+                    </View>
+                    <View style={styles.creatorDetails}>
+                      <Text style={styles.creatorName}>{transfer.profiles.full_name}</Text>
+                      {transfer.vehicles && (
+                          <Text style={styles.vehicleDetails}>{transfer.vehicles.model} • {transfer.vehicles.plate}</Text>
+                      )}
+                    </View>
+                  </>
+                )}
+              </View>
+
               <Text style={styles.transferRoute}>
-                {transfer.transfer_types.origin_description} → {transfer.transfer_types.destination_description}
+                <MapPin size={14} color="#64748b" /> {transfer.transfer_types.origin_description} → {transfer.transfer_types.destination_description}
               </Text>
               <View style={styles.transferFooter}>
                 <Text style={styles.transferSeats}>{transfer.occupied_seats}/{transfer.total_seats} vagas</Text>
@@ -211,7 +262,7 @@ export default function HomeScreen() {
       >
         <View style={styles.header}>
           <View>
-            <Text style={styles.greeting}>Olá, {profile?.full_name?.split(' ')[0]}!</Text>
+            <Text style={styles.greeting}>Olá, {profile?.full_name?.split(' ')[0] || 'Usuário'}!</Text>
             <Text style={styles.subtitle}>Bem-vindo ao TransferApp</Text>
           </View>
           <View style={[styles.planBadge, { borderColor: getPlanColor() }]}>
@@ -306,4 +357,11 @@ const styles = StyleSheet.create({
   emptyState: { alignItems: 'center', paddingVertical: 48 },
   emptyTitle: { fontSize: 18, fontWeight: '600', color: '#64748b', marginTop: 16, marginBottom: 8 },
   emptyDescription: { fontSize: 14, color: '#94a3b8', textAlign: 'center', lineHeight: 20 },
+  // ✅ NOVOS ESTILOS
+  creatorInfo: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  avatarPlaceholder: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#2563eb', justifyContent: 'center', alignItems: 'center' },
+  avatarText: { fontSize: 14, fontWeight: '600', color: '#ffffff' },
+  creatorDetails: { flexDirection: 'column' },
+  creatorName: { fontSize: 14, fontWeight: '500', color: '#1e293b' },
+  vehicleDetails: { fontSize: 12, color: '#64748b' },
 });

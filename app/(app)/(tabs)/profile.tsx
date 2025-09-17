@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   Image,
   Alert,
+  ActivityIndicator, // ✅ NOVO: Importa o ActivityIndicator
 } from 'react-native';
 import { useAuth } from '../../../contexts/AuthContext';
 import { supabase } from '../../../lib/supabase';
@@ -23,7 +24,7 @@ import {
   Mail,
   FileText,
   Crown,
-  UserCheck // Ícone importado
+  UserCheck
 } from 'lucide-react-native';
 
 export default function ProfileScreen() {
@@ -32,15 +33,20 @@ export default function ProfileScreen() {
   const [totalReviews, setTotalReviews] = useState(0);
   const [vehicleCount, setVehicleCount] = useState(0);
   const [transferCount, setTransferCount] = useState(0);
-  // ✅ NOVO ESTADO PARA O CONTADOR DE PARTICIPAÇÕES
   const [participationCount, setParticipationCount] = useState(0);
+  const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
   const router = useRouter();
+  const [loading, setLoading] = useState(true); // ✅ NOVO: Estado de loading
 
   const fetchProfileStats = useCallback(async () => {
-    if (!profile) return;
+    if (!profile) {
+      setLoading(false);
+      return;
+    }
 
     try {
-      // Buscar avaliações e calcular a média
+      setLoading(true); // Inicia o loading
+      // Fetch reviews and calculate average
       const { data: reviewsData } = await supabase
         .from('reviews')
         .select('rating')
@@ -56,29 +62,50 @@ export default function ProfileScreen() {
         }
       }
 
-      // Buscar contagem de veículos
+      // Fetch vehicle count
       const { count: vehicleCountData } = await supabase
         .from('vehicles')
         .select('*', { count: 'exact', head: true })
         .eq('owner_id', profile.id);
       setVehicleCount(vehicleCountData || 0);
 
-      // Buscar contagem de transfers criados
+      // Fetch transfer count
       const { count: transferCountData } = await supabase
         .from('transfers')
         .select('*', { count: 'exact', head: true })
         .eq('creator_id', profile.id);
       setTransferCount(transferCountData || 0);
 
-      // ✅ BUSCAR CONTAGEM DE PARTICIPAÇÕES
+      // Fetch participation count
       const { count: participationCountData } = await supabase
         .from('transfer_participations')
         .select('*', { count: 'exact', head: true })
         .eq('participant_id', profile.id);
       setParticipationCount(participationCountData || 0);
+      
+      // Fetch pending requests for transfers created by the user
+      const { data: myTransfers, error: transfersError } = await supabase
+          .from('transfers')
+          .select('id')
+          .eq('creator_id', profile.id);
+      if(transfersError) throw transfersError;
 
+      const transferIds = myTransfers.map(t => t.id);
+
+      if (transferIds.length > 0) {
+          const { count: pendingCount } = await supabase
+              .from('transfer_participations')
+              .select('*', { count: 'exact', head: true })
+              .in('transfer_id', transferIds)
+              .eq('status', 'pending');
+          setPendingRequestsCount(pendingCount || 0);
+      } else {
+          setPendingRequestsCount(0);
+      }
     } catch (error) {
       console.error('Error fetching profile stats:', error);
+    } finally {
+      setLoading(false);
     }
   }, [profile]);
 
@@ -133,8 +160,8 @@ export default function ProfileScreen() {
       title: 'Meus Transfers',
       subtitle: `${transferCount} transfer${transferCount !== 1 ? 's' : ''} criado${transferCount !== 1 ? 's' : ''}`,
       onPress: () => router.push('/(app)/my-transfers'),
+      notificationCount: pendingRequestsCount,
     },
-    // ✅ NOVO ITEM DE MENU ADICIONADO
     {
       icon: <UserCheck size={24} color="#64748b" />,
       title: 'Minhas Participações',
@@ -156,21 +183,29 @@ export default function ProfileScreen() {
     },
   ];
 
+  if (loading || !profile) { // ✅ CORREÇÃO: Adicionamos a verificação para `loading` e `profile`
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator size="large" color="#2563eb" />
+      </View>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.scrollView}>
         <View style={styles.header}>
           <View style={styles.avatarContainer}>
-            {profile?.avatar_url ? (
+            {profile.avatar_url ? ( // ✅ CORREÇÃO: `profile` não pode ser nulo aqui
               <Image source={{ uri: profile.avatar_url }} style={styles.avatar} />
             ) : (
               <View style={styles.avatarPlaceholder}><User size={40} color="#64748b" /></View>
             )}
           </View>
           <View style={styles.userInfo}>
-            <Text style={styles.userName}>{profile?.full_name || 'Usuário'}</Text>
+            <Text style={styles.userName}>{profile.full_name || 'Usuário'}</Text>
             <View style={styles.userDetails}><Mail size={16} color="#64748b" /><Text style={styles.userEmail}>{user?.email}</Text></View>
-            {profile?.phone && (<View style={styles.userDetails}><Phone size={16} color="#64748b" /><Text style={styles.userPhone}>{profile.phone}</Text></View>)}
+            {profile.phone && (<View style={styles.userDetails}><Phone size={16} color="#64748b" /><Text style={styles.userPhone}>{profile.phone}</Text></View>)}
           </View>
           <View style={[styles.planBadge, { borderColor: getPlanColor() }]}>
             {subscription?.plan === 'enterprise' ? <Crown size={18} color={getPlanColor()} /> : subscription?.plan === 'pro' ? <Star size={18} color={getPlanColor()} /> : <User size={18} color={getPlanColor()} />}
@@ -204,7 +239,13 @@ export default function ProfileScreen() {
                   <Text style={styles.menuSubtitle}>{item.subtitle}</Text>
                 </View>
               </View>
-              {item.showArrow && (<Text style={styles.arrow}>›</Text>)}
+              {item.notificationCount && item.notificationCount > 0 ? (
+                <View style={styles.notificationBadge}>
+                  <Text style={styles.notificationText}>{item.notificationCount}</Text>
+                </View>
+              ) : item.showArrow ? (
+                <Text style={styles.arrow}>›</Text>
+              ) : null}
             </TouchableOpacity>
           ))}
         </View>
@@ -251,4 +292,25 @@ const styles = StyleSheet.create({
   logoutContainer: { paddingHorizontal: 24, paddingVertical: 32 },
   logoutButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#ffffff', paddingVertical: 16, borderRadius: 12, borderWidth: 1, borderColor: '#fee2e2', gap: 8 },
   logoutText: { fontSize: 16, color: '#ef4444', fontWeight: '500' },
+  notificationBadge: {
+    backgroundColor: '#ef4444',
+    borderRadius: 12,
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
+  },
+  notificationText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  // ✅ NOVO ESTILO
+  centered: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+  },
 });

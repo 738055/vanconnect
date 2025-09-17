@@ -3,14 +3,23 @@ import { ActivityIndicator, View } from 'react-native';
 import { SplashScreen, Stack, useRouter, useSegments } from 'expo-router';
 import { AuthProvider, useAuth } from '../contexts/AuthContext';
 import Toast from 'react-native-toast-message';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { NotificationProvider } from '../contexts/NotificationContext'; // ✅ IMPORTAÇÃO DO NOVO CONTEXTO DE NOTIFICAÇÕES
+
+const queryClient = new QueryClient();
 
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   return (
-    <AuthProvider>
-      <ProtectedLayout />
-    </AuthProvider>
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <NotificationProvider> {/* ✅ NOVO: Adicione o NotificationProvider aqui */}
+          <ProtectedLayout />
+        </NotificationProvider>
+      </AuthProvider>
+      <Toast />
+    </QueryClientProvider>
   );
 }
 
@@ -34,22 +43,21 @@ function ProtectedLayout() {
         router.replace('/(auth)/welcome');
       }
     } else if (isAuthenticated && profile) {
-      // ✅ LÓGICA DE VERIFICAÇÃO ADICIONADA AQUI
-      // O `segments[1]` se refere ao nome do arquivo da tela dentro do grupo (auth)
-      // Ex: para a rota /(auth)/pending, segments[0] é '(auth)' e segments[1] é 'pending'
+      const currentRoute = segments.join('/');
+
       switch (profile.status) {
         case 'onboarding':
-          if (segments[1] !== 'complete-profile') {
+          if (currentRoute !== '(auth)/complete-profile') {
             router.replace('/(auth)/complete-profile');
           }
           break;
         case 'pending':
-          if (segments[1] !== 'pending') {
+          if (currentRoute !== '(auth)/pending') {
             router.replace('/(auth)/pending');
           }
           break;
         case 'rejected':
-          if (segments[1] !== 'rejected') {
+          if (currentRoute !== '(auth)/rejected') {
             router.replace('/(auth)/rejected');
           }
           break;
@@ -59,32 +67,30 @@ function ProtectedLayout() {
           }
           break;
         default:
-          // Se o status for nulo ou desconhecido, mas o usuário estiver logado
-          // pode significar que o perfil não foi criado corretamente.
-          if (segments[1] !== 'complete-profile') {
-             router.replace('/(auth)/complete-profile');
+          if (currentRoute !== '(auth)/login') {
+            router.replace('/(auth)/login');
           }
       }
     } else if (isAuthenticated && !profile) {
-        // Caso raro: usuário logado mas sem perfil. Envia para completar.
         if (segments[1] !== 'complete-profile') {
             router.replace('/(auth)/complete-profile');
         }
     }
-  }, [isAuthenticated, profile, loading, segments]);
+  }, [isAuthenticated, profile, loading, segments, router]);
 
   if (loading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" />
+        <ActivityIndicator size="large" color="#1e293b" />
       </View>
     );
   }
 
   return (
-    <>
-      <Stack screenOptions={{ headerShown: false }} />
-      <Toast />
-    </>
+    <Stack
+      screenOptions={{
+        headerShown: false,
+      }}
+    />
   );
 }

@@ -46,7 +46,12 @@ export default function MyTransfersScreen() {
     }
   }, [profile]);
 
-  useFocusEffect(fetchMyTransfers);
+  // ✅ CORREÇÃO APLICADA AQUI
+  useFocusEffect(
+    useCallback(() => {
+      fetchMyTransfers();
+    }, [fetchMyTransfers])
+  );
   
   const getStatusColor = (status: string) => {
     const colors: { [key: string]: string } = {
