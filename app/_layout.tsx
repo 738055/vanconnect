@@ -1,80 +1,90 @@
-import { useEffect } from 'react';
-import { Stack, useRouter, useSegments } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
+import React, { useEffect } from 'react';
+import { ActivityIndicator, View } from 'react-native';
+import { SplashScreen, Stack, useRouter, useSegments } from 'expo-router';
 import { AuthProvider, useAuth } from '../contexts/AuthContext';
 import Toast from 'react-native-toast-message';
-import { Provider as PaperProvider } from 'react-native-paper';
-import { ActivityIndicator, View } from 'react-native';
 
-// Este componente interno agora lida com a lógica de navegação
-const ProtectedLayout = () => {
-  const { user, profile, loading } = useAuth();
+SplashScreen.preventAutoHideAsync();
+
+export default function RootLayout() {
+  return (
+    <AuthProvider>
+      <ProtectedLayout />
+    </AuthProvider>
+  );
+}
+
+function ProtectedLayout() {
+  const { isAuthenticated, profile, loading } = useAuth();
   const segments = useSegments();
   const router = useRouter();
 
   useEffect(() => {
-    // Se ainda estiver carregando os dados do usuário, não faz nada.
-    if (loading) return;
+    if (!loading) {
+      SplashScreen.hideAsync();
+    }
 
     const inAuthGroup = segments[0] === '(auth)';
+    const inAppGroup = segments[0] === '(app)';
 
-    // Se não há usuário e ele não está na área de autenticação,
-    // redireciona para a tela de boas-vindas.
-    if (!user && !inAuthGroup) {
-      router.replace('/(auth)/welcome');
-    } 
-    // Se há um usuário e seu perfil foi carregado...
-    else if (user && profile) {
-      // ✅ AQUI ESTÁ A LÓGICA FALTANTE
-      // Se o status é 'onboarding', o usuário deve completar o perfil.
-      if (profile.status === 'onboarding') {
-        router.replace('/(auth)/complete-profile');
+    if (loading) return;
+
+    if (!isAuthenticated) {
+      if (!inAuthGroup) {
+        router.replace('/(auth)/welcome');
       }
-      // Se o cadastro está pendente, ele vai para a tela de espera.
-      else if (profile.status === 'pending') {
-        router.replace('/(auth)/pending');
+    } else if (isAuthenticated && profile) {
+      // ✅ LÓGICA DE VERIFICAÇÃO ADICIONADA AQUI
+      // O `segments[1]` se refere ao nome do arquivo da tela dentro do grupo (auth)
+      // Ex: para a rota /(auth)/pending, segments[0] é '(auth)' e segments[1] é 'pending'
+      switch (profile.status) {
+        case 'onboarding':
+          if (segments[1] !== 'complete-profile') {
+            router.replace('/(auth)/complete-profile');
+          }
+          break;
+        case 'pending':
+          if (segments[1] !== 'pending') {
+            router.replace('/(auth)/pending');
+          }
+          break;
+        case 'rejected':
+          if (segments[1] !== 'rejected') {
+            router.replace('/(auth)/rejected');
+          }
+          break;
+        case 'approved':
+          if (!inAppGroup) {
+            router.replace('/(app)/(tabs)');
+          }
+          break;
+        default:
+          // Se o status for nulo ou desconhecido, mas o usuário estiver logado
+          // pode significar que o perfil não foi criado corretamente.
+          if (segments[1] !== 'complete-profile') {
+             router.replace('/(auth)/complete-profile');
+          }
       }
-      // Se foi rejeitado, vai para a tela de rejeitado.
-      else if (profile.status === 'rejected') {
-        router.replace('/(auth)/rejected');
-      }
-      // Se foi aprovado e ainda está na área de autenticação,
-      // é hora de ir para a área principal do app.
-      else if (profile.status === 'approved' && inAuthGroup) {
-        router.replace('/(app)/(tabs)');
-      }
+    } else if (isAuthenticated && !profile) {
+        // Caso raro: usuário logado mas sem perfil. Envia para completar.
+        if (segments[1] !== 'complete-profile') {
+            router.replace('/(auth)/complete-profile');
+        }
     }
-  }, [user, profile, loading, segments]);
+  }, [isAuthenticated, profile, loading, segments]);
 
-  // Enquanto carrega, podemos mostrar um indicador para o usuário
   if (loading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" color="#1e293b" />
+        <ActivityIndicator size="large" />
       </View>
     );
   }
 
-  // Quando não está carregando, renderiza as rotas definidas.
   return (
-    <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="(auth)" />
-      <Stack.Screen name="(app)" />
-      <Stack.Screen name="+not-found" />
-    </Stack>
-  );
-};
-
-export default function RootLayout() {
-  // O seu useFrameworkReady e initializeStripe podem ficar aqui se necessário
-  
-  return (
-    <PaperProvider>
-      <AuthProvider>
-        <ProtectedLayout />
-        <StatusBar style="auto" />
-        <Toast />
-      </AuthProvider>
-    </PaperProvider>
+    <>
+      <Stack screenOptions={{ headerShown: false }} />
+      <Toast />
+    </>
   );
 }

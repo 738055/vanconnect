@@ -1,6 +1,6 @@
 import { Tabs } from 'expo-router';
 import { useAuth } from '../../../contexts/AuthContext';
-import { Chrome as Home, Search, Plus, User, Building } from 'lucide-react-native';
+import { Home, Search, Plus, User, Building2 as Building } from 'lucide-react-native';
 
 export default function TabLayout() {
   const { subscription } = useAuth();
@@ -16,10 +16,11 @@ export default function TabLayout() {
         tabBarInactiveTintColor: '#64748b',
         tabBarStyle: {
           backgroundColor: '#ffffff',
+          borderTopWidth: 1,
           borderTopColor: '#e5e7eb',
           paddingBottom: 8,
           paddingTop: 8,
-          height: 80,
+          height: 60,
         },
         tabBarLabelStyle: {
           fontSize: 12,
@@ -37,19 +38,19 @@ export default function TabLayout() {
         }}
       />
 
-      {(isPro || isEnterprise) && (
-        <Tabs.Screen
-          name="transfers"
-          options={{
-            title: 'Transfers',
-            tabBarIcon: ({ size, color }) => (
-              <Search size={size} color={color} />
-            ),
-          }}
-        />
-      )}
+      {/* ✅ ALTERAÇÃO: A aba 'Transfers' agora é visível para todos */}
+      <Tabs.Screen
+        name="transfers"
+        options={{
+          title: 'Transfers',
+          tabBarIcon: ({ size, color }) => (
+            <Search size={size} color={color} />
+          ),
+        }}
+      />
 
-      {(isPro || isEnterprise) && (
+      {/* A aba 'Criar' continua visível apenas para Pro e Enterprise */}
+      {(isPro || isEnterprise) ? (
         <Tabs.Screen
           name="create"
           options={{
@@ -59,9 +60,10 @@ export default function TabLayout() {
             ),
           }}
         />
-      )}
+      ) : null}
 
-      {isEnterprise && (
+      {/* A aba 'Dashboard' continua visível apenas para Enterprise */}
+      {isEnterprise ? (
         <Tabs.Screen
           name="dashboard"
           options={{
@@ -71,7 +73,7 @@ export default function TabLayout() {
             ),
           }}
         />
-      )}
+      ) : null}
 
       <Tabs.Screen
         name="profile"

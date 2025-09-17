@@ -1,22 +1,23 @@
-import React, { useEffect, useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  SafeAreaView,
-  TouchableOpacity,
-  RefreshControl,
-} from 'react-native';
+import React, { useEffect, useState, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, SafeAreaView, TouchableOpacity, RefreshControl } from 'react-native';
 import { useAuth } from '../../../contexts/AuthContext';
 import { supabase } from '../../../lib/supabase';
 import { Transfer } from '../../../types/database';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from 'expo-router';
 import { Truck, TrendingUp, Users, Star, Crown, Zap } from 'lucide-react-native';
+
+type TransferWithDetails = Transfer & {
+  transfer_types: {
+    title: string;
+    origin_description: string;
+    destination_description: string;
+  }
+};
 
 export default function HomeScreen() {
   const { profile, subscription } = useAuth();
-  const [recentTransfers, setRecentTransfers] = useState<Transfer[]>([]);
+  const [recentTransfers, setRecentTransfers] = useState<TransferWithDetails[]>([]);
   const [stats, setStats] = useState({
     totalTransfers: 0,
     activeTransfers: 0,
@@ -27,22 +28,28 @@ export default function HomeScreen() {
 
   const fetchData = async () => {
     if (!profile) return;
-
+    setLoading(true);
     try {
-      // Fetch recent transfers
-      const { data: transfers } = await supabase
+      const { data: transfersData, error: transfersError } = await supabase
         .from('transfers')
-        .select('*')
-        .or(`creator_id.eq.${profile.id}`)
+        .select(`
+          *,
+          transfer_types (
+            title,
+            origin_description,
+            destination_description
+          )
+        `)
+        .eq('creator_id', profile.id)
         .order('created_at', { ascending: false })
         .limit(5);
 
-      setRecentTransfers(transfers || []);
+      if (transfersError) throw transfersError;
+      setRecentTransfers(transfersData as TransferWithDetails[] || []);
 
-      // Fetch stats
       const { data: myTransfers } = await supabase
         .from('transfers')
-        .select('*')
+        .select('*', { count: 'exact' })
         .eq('creator_id', profile.id);
 
       const activeTransfers = myTransfers?.filter(t => 
@@ -65,9 +72,7 @@ export default function HomeScreen() {
     }
   };
 
-  useEffect(() => {
-    fetchData();
-  }, [profile]);
+  useFocusEffect(useCallback(() => { fetchData(); }, [profile]));
 
   const getPlanIcon = () => {
     switch (subscription?.plan) {
@@ -102,6 +107,26 @@ export default function HomeScreen() {
     }
   };
 
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'available': return '#10b981';
+      case 'full': return '#f59e0b';
+      case 'completed': return '#6b7280';
+      case 'canceled': return '#ef4444';
+      default: return '#6b7280';
+    }
+  };
+
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case 'available': return 'Disponível';
+      case 'full': return 'Lotado';
+      case 'completed': return 'Finalizado';
+      case 'canceled': return 'Cancelado';
+      default: return status;
+    }
+  };
+  
   const renderFreeContent = () => (
     <View style={styles.upgradeSection}>
       <View style={styles.upgradeCard}>
@@ -142,7 +167,6 @@ export default function HomeScreen() {
           <Text style={styles.statLabel}>Faturamento</Text>
         </View>
       </View>
-
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Transfers Recentes</Text>
@@ -150,30 +174,21 @@ export default function HomeScreen() {
             <Text style={styles.sectionLink}>Ver todos</Text>
           </TouchableOpacity>
         </View>
-
         {recentTransfers.length > 0 ? (
           recentTransfers.map((transfer) => (
-            <TouchableOpacity
-              key={transfer.id}
-              style={styles.transferCard}
-              onPress={() => router.push(`/(app)/transfer-details/${transfer.id}`)}
-            >
+            <TouchableOpacity key={transfer.id} style={styles.transferCard} onPress={() => router.push(`/(app)/transfer-details/${transfer.id}`)}>
               <View style={styles.transferHeader}>
-                <Text style={styles.transferTitle}>{transfer.title}</Text>
+                <Text style={styles.transferTitle}>{transfer.transfer_types.title}</Text>
                 <View style={[styles.statusBadge, { backgroundColor: getStatusColor(transfer.status) }]}>
                   <Text style={styles.statusText}>{getStatusLabel(transfer.status)}</Text>
                 </View>
               </View>
               <Text style={styles.transferRoute}>
-                {transfer.origin_description} → {transfer.destination_description}
+                {transfer.transfer_types.origin_description} → {transfer.transfer_types.destination_description}
               </Text>
               <View style={styles.transferFooter}>
-                <Text style={styles.transferSeats}>
-                  {transfer.occupied_seats}/{transfer.total_seats} vagas
-                </Text>
-                <Text style={styles.transferPrice}>
-                  R$ {transfer.price_per_seat?.toFixed(2) || '0.00'}
-                </Text>
+                <Text style={styles.transferSeats}>{transfer.occupied_seats}/{transfer.total_seats} vagas</Text>
+                <Text style={styles.transferPrice}>R$ {transfer.price_per_seat?.toFixed(2) || '0.00'}</Text>
               </View>
             </TouchableOpacity>
           ))
@@ -181,52 +196,18 @@ export default function HomeScreen() {
           <View style={styles.emptyState}>
             <Truck size={48} color="#cbd5e1" />
             <Text style={styles.emptyTitle}>Nenhum transfer encontrado</Text>
-            <Text style={styles.emptyDescription}>
-              Crie seu primeiro transfer ou participe de um existente
-            </Text>
+            <Text style={styles.emptyDescription}>Crie seu primeiro transfer ou participe de um existente</Text>
           </View>
         )}
       </View>
     </>
   );
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'available':
-        return '#10b981';
-      case 'full':
-        return '#f59e0b';
-      case 'completed':
-        return '#6b7280';
-      case 'canceled':
-        return '#ef4444';
-      default:
-        return '#6b7280';
-    }
-  };
-
-  const getStatusLabel = (status: string) => {
-    switch (status) {
-      case 'available':
-        return 'Disponível';
-      case 'full':
-        return 'Lotado';
-      case 'completed':
-        return 'Finalizado';
-      case 'canceled':
-        return 'Cancelado';
-      default:
-        return status;
-    }
-  };
-
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView 
         style={styles.scrollView}
-        refreshControl={
-          <RefreshControl refreshing={loading} onRefresh={fetchData} />
-        }
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchData} />}
       >
         <View style={styles.header}>
           <View>
@@ -235,12 +216,9 @@ export default function HomeScreen() {
           </View>
           <View style={[styles.planBadge, { borderColor: getPlanColor() }]}>
             {getPlanIcon()}
-            <Text style={[styles.planText, { color: getPlanColor() }]}>
-              {getPlanName()}
-            </Text>
+            <Text style={[styles.planText, { color: getPlanColor() }]}>{getPlanName()}</Text>
           </View>
         </View>
-
         {subscription?.plan === 'free' ? renderFreeContent() : renderProEnterpriseContent()}
       </ScrollView>
     </SafeAreaView>
@@ -248,13 +226,8 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f8fafc',
-  },
-  scrollView: {
-    flex: 1,
-  },
+  container: { flex: 1, backgroundColor: '#f8fafc' },
+  scrollView: { flex: 1 },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -263,16 +236,8 @@ const styles = StyleSheet.create({
     paddingVertical: 32,
     backgroundColor: '#ffffff',
   },
-  greeting: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1e293b',
-    marginBottom: 4,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#64748b',
-  },
+  greeting: { fontSize: 24, fontWeight: 'bold', color: '#1e293b', marginBottom: 4 },
+  subtitle: { fontSize: 16, color: '#64748b' },
   planBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -282,13 +247,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: 6,
   },
-  planText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  upgradeSection: {
-    padding: 24,
-  },
+  planText: { fontSize: 14, fontWeight: '600' },
+  upgradeSection: { padding: 24 },
   upgradeCard: {
     backgroundColor: '#ffffff',
     padding: 24,
@@ -300,41 +260,12 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 3,
   },
-  upgradeHeader: {
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  upgradeTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#1e293b',
-    marginTop: 8,
-    textAlign: 'center',
-  },
-  upgradeDescription: {
-    fontSize: 16,
-    color: '#64748b',
-    textAlign: 'center',
-    marginBottom: 24,
-    lineHeight: 24,
-  },
-  upgradeButton: {
-    backgroundColor: '#2563eb',
-    paddingVertical: 14,
-    paddingHorizontal: 32,
-    borderRadius: 12,
-  },
-  upgradeButtonText: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  statsContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: 24,
-    paddingVertical: 16,
-    gap: 12,
-  },
+  upgradeHeader: { alignItems: 'center', marginBottom: 16 },
+  upgradeTitle: { fontSize: 20, fontWeight: 'bold', color: '#1e293b', marginTop: 8, textAlign: 'center' },
+  upgradeDescription: { fontSize: 16, color: '#64748b', textAlign: 'center', marginBottom: 24, lineHeight: 24 },
+  upgradeButton: { backgroundColor: '#2563eb', paddingVertical: 14, paddingHorizontal: 32, borderRadius: 12 },
+  upgradeButtonText: { color: '#ffffff', fontSize: 16, fontWeight: '600' },
+  statsContainer: { flexDirection: 'row', paddingHorizontal: 24, paddingVertical: 16, gap: 12 },
   statCard: {
     flex: 1,
     backgroundColor: '#ffffff',
@@ -347,38 +278,12 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 3,
   },
-  statNumber: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1e293b',
-    marginTop: 8,
-  },
-  statLabel: {
-    fontSize: 12,
-    color: '#64748b',
-    marginTop: 4,
-    textAlign: 'center',
-  },
-  section: {
-    paddingHorizontal: 24,
-    paddingBottom: 24,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#1e293b',
-  },
-  sectionLink: {
-    fontSize: 16,
-    color: '#2563eb',
-    fontWeight: '500',
-  },
+  statNumber: { fontSize: 24, fontWeight: 'bold', color: '#1e293b', marginTop: 8 },
+  statLabel: { fontSize: 12, color: '#64748b', marginTop: 4, textAlign: 'center' },
+  section: { paddingHorizontal: 24, paddingBottom: 24 },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+  sectionTitle: { fontSize: 20, fontWeight: 'bold', color: '#1e293b' },
+  sectionLink: { fontSize: 16, color: '#2563eb', fontWeight: '500' },
   transferCard: {
     backgroundColor: '#ffffff',
     padding: 20,
@@ -390,63 +295,15 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 3,
   },
-  transferHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 8,
-  },
-  transferTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1e293b',
-    flex: 1,
-    marginRight: 12,
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  statusText: {
-    fontSize: 12,
-    color: '#ffffff',
-    fontWeight: '600',
-  },
-  transferRoute: {
-    fontSize: 14,
-    color: '#64748b',
-    marginBottom: 12,
-  },
-  transferFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  transferSeats: {
-    fontSize: 14,
-    color: '#64748b',
-  },
-  transferPrice: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#10b981',
-  },
-  emptyState: {
-    alignItems: 'center',
-    paddingVertical: 48,
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#64748b',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  emptyDescription: {
-    fontSize: 14,
-    color: '#94a3b8',
-    textAlign: 'center',
-    lineHeight: 20,
-  },
+  transferHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 },
+  transferTitle: { fontSize: 16, fontWeight: '600', color: '#1e293b', flex: 1, marginRight: 12 },
+  statusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
+  statusText: { fontSize: 12, color: '#ffffff', fontWeight: '600' },
+  transferRoute: { fontSize: 14, color: '#64748b', marginBottom: 12 },
+  transferFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  transferSeats: { fontSize: 14, color: '#64748b' },
+  transferPrice: { fontSize: 16, fontWeight: '600', color: '#10b981' },
+  emptyState: { alignItems: 'center', paddingVertical: 48 },
+  emptyTitle: { fontSize: 18, fontWeight: '600', color: '#64748b', marginTop: 16, marginBottom: 8 },
+  emptyDescription: { fontSize: 14, color: '#94a3b8', textAlign: 'center', lineHeight: 20 },
 });

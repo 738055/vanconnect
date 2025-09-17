@@ -9,6 +9,7 @@ interface AuthContextType {
   subscription: Subscription | null;
   session: Session | null;
   loading: boolean;
+  isAuthenticated: boolean;
   signIn: (email: string, password: string) => Promise<{ error: any }>;
   signUp: (email: string, password: string, fullName: string) => Promise<{ error: any }>;
   signOut: () => Promise<void>;
@@ -24,16 +25,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const isAuthenticated = !!user;
+
   useEffect(() => {
+    // Este listener é ótimo para manter a sessão ativa quando o app é reaberto.
     const { data: { subscription: authSubscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         setSession(session);
         const currentUser = session?.user ?? null;
-        setUser(currentUser);
+        setUser(currentUser); // Atualiza o usuário com base na sessão
 
         if (currentUser) {
-          await fetchProfile(currentUser.id);
+          // Apenas busca o perfil se ele ainda não estiver carregado
+          if (!profile || profile.id !== currentUser.id) {
+            await fetchProfile(currentUser.id);
+          } else {
+            setLoading(false);
+          }
         } else {
+          // Limpa tudo se não houver sessão
           setProfile(null);
           setSubscription(null);
           setLoading(false);
@@ -44,20 +54,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       authSubscription.unsubscribe();
     };
-  }, []);
+  }, []); // Dependência vazia para rodar apenas uma vez
 
   const fetchProfile = async (userId: string) => {
     try {
-      if (!loading) setLoading(true);
-      
       const { data: profileData, error: profileError } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
-        .maybeSingle();
+        .single(); // Usar .single() é mais seguro se o perfil sempre deve existir
 
       if (profileError) throw profileError;
-      setProfile(profileData);
+      
+      setProfile(profileData); // Atualiza o estado do perfil
 
       if (profileData) {
         const { data: subscriptionData } = await supabase
@@ -67,71 +76,57 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           .maybeSingle();
         
         setSubscription(subscriptionData || null);
-      } else {
-        setSubscription(null);
       }
     } catch (error) {
-      console.error('Error fetching profile and subscription:', error);
+      console.error('Erro ao buscar perfil:', error);
+      // Limpa os dados em caso de erro para evitar um estado inconsistente
       setProfile(null);
       setSubscription(null);
     } finally {
+      // Garante que o loading seja desativado ao final
       setLoading(false);
     }
   };
 
+  // ✅ FUNÇÃO CORRIGIDA
   const signIn = async (email: string, password: string) => {
-    return supabase.auth.signInWithPassword({ email, password });
+    setLoading(true); // Ativa o loading no início do processo de login
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+
+    if (data.user) {
+      // Se o login for bem-sucedido, atualiza o estado do usuário IMEDIATAMENTE
+      setUser(data.user);
+      // E em seguida, busca os dados do perfil associado
+      await fetchProfile(data.user.id);
+    } else {
+      // Se o login falhar, desativa o loading
+      setLoading(false);
+    }
+
+    // Retorna o erro, se houver, para a tela de login poder exibi-lo
+    return { error };
   };
 
   const signUp = async (email: string, password: string, fullName: string) => {
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password,
-      options: {
-        data: {
-          full_name: fullName,
-        },
-      },
+      options: { data: { full_name: fullName } },
     });
 
-    if (authError) {
-      return { error: authError };
-    }
-
-    if (!authData.user) {
-      return { error: new Error("Utilizador não encontrado após o registo.") };
-    }
+    if (authError) return { error: authError };
+    if (!authData.user) return { error: new Error("Usuário não encontrado após o registo.") };
     
-    /**
-     * ✅ CORREÇÃO: Troca de .insert() para .upsert() com ignoreDuplicates.
-     * Isso tenta inserir um novo perfil. Se um perfil com a mesma 'id' já existir,
-     * a operação é ignorada em vez de causar um erro de chave duplicada.
-     * Isso resolve o problema de um usuário tentar se registrar novamente com o mesmo e-mail.
-     */
     const { error: profileError } = await supabase
       .from('profiles')
-      .upsert(
-        {
-          id: authData.user.id,
-          full_name: fullName,
-          status: 'onboarding'
-        },
-        {
-          onConflict: 'id',
-          ignoreDuplicates: true,
-        }
-      );
+      .upsert({ id: authData.user.id, full_name: fullName, status: 'onboarding' }, { onConflict: 'id' });
 
-    if (profileError) {
-      console.error("Erro ao criar/verificar perfil:", profileError);
-      return { error: profileError };
-    }
-    
-    return { error: null };
+    return { error: profileError };
   };
 
   const signOut = async () => {
     await supabase.auth.signOut();
+    // Limpa todos os estados manualmente para garantir uma transição limpa
     setUser(null);
     setProfile(null);
     setSubscription(null);
@@ -146,7 +141,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   return (
     <AuthContext.Provider
-      value={{ user, profile, subscription, session, loading, signIn, signUp, signOut, refreshProfile }}
+      value={{ user, profile, subscription, session, loading, isAuthenticated, signIn, signUp, signOut, refreshProfile }}
     >
       {children}
     </AuthContext.Provider>
