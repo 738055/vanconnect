@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,14 +8,15 @@ import {
   TextInput,
   TouchableOpacity,
   Alert,
+  Platform,
 } from 'react-native';
 import { useAuth } from '../../../contexts/AuthContext';
 import { supabase } from '../../../lib/supabase';
 import { Vehicle } from '../../../types/database';
-import { useRouter } from 'expo-router';
+// ✅ 1. Importar useFocusEffect
+import { useFocusEffect, useRouter } from 'expo-router';
 import { MapPin, Calendar, Users, DollarSign, Car } from 'lucide-react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { Platform } from 'react-native';
 
 export default function CreateTransferScreen() {
   const { profile, subscription } = useAuth();
@@ -34,10 +35,6 @@ export default function CreateTransferScreen() {
 
   const isEnterprise = subscription?.plan === 'enterprise';
 
-  useEffect(() => {
-    fetchVehicles();
-  }, []);
-
   const fetchVehicles = async () => {
     if (!profile) return;
 
@@ -54,6 +51,14 @@ export default function CreateTransferScreen() {
       console.error('Error fetching vehicles:', error);
     }
   };
+  
+  // ✅ 2. Substituir o useEffect por useFocusEffect para sempre buscar veículos novos
+  useFocusEffect(
+    useCallback(() => {
+      fetchVehicles();
+    }, [profile]) // Adicionado profile como dependência por segurança
+  );
+
 
   const handleDateChange = (event: any, selectedDate?: Date) => {
     setShowDatePicker(Platform.OS === 'ios');
@@ -63,16 +68,8 @@ export default function CreateTransferScreen() {
   };
 
   const validateForm = () => {
-    if (!title.trim()) {
-      Alert.alert('Erro', 'Título é obrigatório');
-      return false;
-    }
-    if (!origin.trim()) {
-      Alert.alert('Erro', 'Origem é obrigatória');
-      return false;
-    }
-    if (!destination.trim()) {
-      Alert.alert('Erro', 'Destino é obrigatório');
+    if (!title.trim() || !origin.trim() || !destination.trim()) {
+      Alert.alert('Erro', 'Título, origem e destino são obrigatórios');
       return false;
     }
     if (!selectedVehicle) {
@@ -83,8 +80,19 @@ export default function CreateTransferScreen() {
       Alert.alert('Erro', 'Número de vagas deve ser maior que zero');
       return false;
     }
-    if (!pricePerSeat || parseFloat(pricePerSeat) <= 0) {
-      Alert.alert('Erro', 'Preço por vaga deve ser maior que zero');
+    
+    // ✅ 3. Adicionar validação de capacidade do veículo
+    const vehicle = vehicles.find(v => v.id === selectedVehicle);
+    if (vehicle && parseInt(totalSeats) > vehicle.total_seats) {
+      Alert.alert(
+        'Erro de Capacidade',
+        `O número de vagas (${totalSeats}) excede a capacidade do veículo selecionado (${vehicle.total_seats}).`
+      );
+      return false;
+    }
+    
+    if (!pricePerSeat || parseFloat(pricePerSeat) < 0) {
+      Alert.alert('Erro', 'Preço por vaga deve ser um valor válido');
       return false;
     }
     if (departureDate <= new Date()) {
@@ -138,7 +146,11 @@ export default function CreateTransferScreen() {
           <Text style={styles.noVehiclesDescription}>
             Você precisa cadastrar um veículo primeiro
           </Text>
-          <TouchableOpacity style={styles.addVehicleButton}>
+          {/* ✅ 4. Ativar o botão de navegação */}
+          <TouchableOpacity 
+            style={styles.addVehicleButton}
+            onPress={() => router.push('/(app)/vehicles/create')} // Rota de exemplo
+          >
             <Text style={styles.addVehicleButtonText}>Cadastrar Veículo</Text>
           </TouchableOpacity>
         </View>
@@ -155,7 +167,11 @@ export default function CreateTransferScreen() {
               styles.vehicleOption,
               selectedVehicle === vehicle.id && styles.selectedVehicle
             ]}
-            onPress={() => setSelectedVehicle(vehicle.id)}
+            onPress={() => {
+                setSelectedVehicle(vehicle.id);
+                // Opcional: auto-preencher vagas com a capacidade do veículo
+                setTotalSeats(String(vehicle.total_seats));
+            }}
           >
             <View style={styles.vehicleInfo}>
               <Text style={styles.vehicleModel}>{vehicle.model}</Text>

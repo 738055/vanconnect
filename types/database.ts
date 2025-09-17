@@ -8,8 +8,8 @@ export interface Database {
           cpf_cnpj: string | null;
           phone: string | null;
           avatar_url: string | null;
-          document_url: string | null;
-          status: 'pending' | 'approved' | 'rejected';
+          document_url: string[] | null;
+          status: 'onboarding' | 'pending' | 'approved' | 'rejected';
           rejection_reason: string | null;
           created_at: string;
         };
@@ -19,8 +19,8 @@ export interface Database {
           cpf_cnpj?: string | null;
           phone?: string | null;
           avatar_url?: string | null;
-          document_url?: string | null;
-          status?: 'pending' | 'approved' | 'rejected';
+          document_url?: string[] | null;
+          status?: 'onboarding' | 'pending' | 'approved' | 'rejected';
           rejection_reason?: string | null;
           created_at?: string;
         };
@@ -30,8 +30,8 @@ export interface Database {
           cpf_cnpj?: string | null;
           phone?: string | null;
           avatar_url?: string | null;
-          document_url?: string | null;
-          status?: 'pending' | 'approved' | 'rejected';
+          document_url?: string[] | null;
+          status?: 'onboarding' | 'pending' | 'approved' | 'rejected';
           rejection_reason?: string | null;
           created_at?: string;
         };

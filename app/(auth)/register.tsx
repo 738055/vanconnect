@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
@@ -28,32 +29,17 @@ export default function RegisterScreen() {
 
   const validateForm = () => {
     if (!fullName || !email || !password || !confirmPassword) {
-      Toast.show({
-        type: 'error',
-        text1: 'Campos obrigatórios',
-        text2: 'Preencha todos os campos',
-      });
+      Toast.show({ type: 'error', text1: 'Campos obrigatórios' });
       return false;
     }
-
     if (password !== confirmPassword) {
-      Toast.show({
-        type: 'error',
-        text1: 'Senhas não conferem',
-        text2: 'As senhas devem ser idênticas',
-      });
+      Toast.show({ type: 'error', text1: 'Senhas não conferem' });
       return false;
     }
-
     if (password.length < 6) {
-      Toast.show({
-        type: 'error',
-        text1: 'Senha muito curta',
-        text2: 'A senha deve ter pelo menos 6 caracteres',
-      });
+      Toast.show({ type: 'error', text1: 'Senha muito curta', text2: 'A senha deve ter no mínimo 6 caracteres.' });
       return false;
     }
-
     return true;
   };
 
@@ -61,23 +47,29 @@ export default function RegisterScreen() {
     if (!validateForm()) return;
 
     setLoading(true);
-    const { error } = await signUp(email, password, fullName);
-    
-    if (error) {
+    try {
+      const { error } = await signUp(email, password, fullName);
+      if (error) {
+        throw error;
+      }
+      Toast.show({
+        type: 'info',
+        text1: 'Cadastro quase completo!',
+        text2: 'Enviamos um link de confirmação para o seu e-mail.',
+        visibilityTime: 5000,
+      });
+      // Redireciona para a tela de verificação de e-mail após o sucesso.
+      router.push('/(auth)/verify-email');
+    } catch (error: any) {
+      console.error('Erro detalhado no registo:', error);
       Toast.show({
         type: 'error',
         text1: 'Erro no cadastro',
-        text2: error.message,
+        text2: error.message || 'Não foi possível criar a conta. Tente novamente.',
       });
-    } else {
-      Toast.show({
-        type: 'success',
-        text1: 'Cadastro realizado!',
-        text2: 'Complete seu perfil para continuar',
-      });
-      router.push('/(auth)/complete-profile');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
@@ -95,7 +87,7 @@ export default function RegisterScreen() {
           </TouchableOpacity>
           <Text style={styles.title}>Criar Conta</Text>
           <Text style={styles.subtitle}>
-            Preencha seus dados para começar
+            Preencha os seus dados para começar
           </Text>
         </View>
 
@@ -106,11 +98,10 @@ export default function RegisterScreen() {
               style={styles.input}
               value={fullName}
               onChangeText={setFullName}
-              placeholder="Seu nome completo"
+              placeholder="O seu nome completo"
               autoCapitalize="words"
             />
           </View>
-
           <View style={styles.inputContainer}>
             <Text style={styles.label}>E-mail</Text>
             <TextInput
@@ -123,7 +114,6 @@ export default function RegisterScreen() {
               autoCorrect={false}
             />
           </View>
-
           <View style={styles.inputContainer}>
             <Text style={styles.label}>Senha</Text>
             <View style={styles.passwordContainer}>
@@ -139,15 +129,10 @@ export default function RegisterScreen() {
                 style={styles.eyeButton}
                 onPress={() => setShowPassword(!showPassword)}
               >
-                {showPassword ? (
-                  <EyeOff size={20} color="#64748b" />
-                ) : (
-                  <Eye size={20} color="#64748b" />
-                )}
+                {showPassword ? <EyeOff size={20} color="#64748b" /> : <Eye size={20} color="#64748b" />}
               </TouchableOpacity>
             </View>
           </View>
-
           <View style={styles.inputContainer}>
             <Text style={styles.label}>Confirmar Senha</Text>
             <View style={styles.passwordContainer}>
@@ -163,25 +148,17 @@ export default function RegisterScreen() {
                 style={styles.eyeButton}
                 onPress={() => setShowConfirmPassword(!showConfirmPassword)}
               >
-                {showConfirmPassword ? (
-                  <EyeOff size={20} color="#64748b" />
-                ) : (
-                  <Eye size={20} color="#64748b" />
-                )}
+                {showConfirmPassword ? <EyeOff size={20} color="#64748b" /> : <Eye size={20} color="#64748b" />}
               </TouchableOpacity>
             </View>
           </View>
-
           <TouchableOpacity
             style={[styles.registerButton, loading && styles.disabledButton]}
             onPress={handleRegister}
             disabled={loading}
           >
-            <Text style={styles.registerButtonText}>
-              {loading ? 'Criando conta...' : 'Criar Conta'}
-            </Text>
+            {loading ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.registerButtonText}>Criar Conta</Text>}
           </TouchableOpacity>
-
           <View style={styles.loginContainer}>
             <Text style={styles.loginText}>Já tem conta? </Text>
             <TouchableOpacity onPress={() => router.push('/(auth)/login')}>
@@ -195,109 +172,23 @@ export default function RegisterScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f8fafc',
-  },
-  keyboardView: {
-    flex: 1,
-  },
-  header: {
-    paddingHorizontal: 24,
-    paddingVertical: 32,
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#ffffff',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#1e293b',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#64748b',
-  },
-  form: {
-    flex: 1,
-    paddingHorizontal: 24,
-  },
-  inputContainer: {
-    marginBottom: 24,
-  },
-  label: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#374151',
-    marginBottom: 8,
-  },
-  input: {
-    backgroundColor: '#ffffff',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    borderRadius: 12,
-    fontSize: 16,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-  },
-  passwordContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-  },
-  passwordInput: {
-    flex: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    fontSize: 16,
-  },
-  eyeButton: {
-    paddingHorizontal: 16,
-  },
-  registerButton: {
-    backgroundColor: '#2563eb',
-    paddingVertical: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    marginTop: 8,
-    marginBottom: 24,
-  },
-  disabledButton: {
-    opacity: 0.6,
-  },
-  registerButtonText: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  loginContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingBottom: 32,
-  },
-  loginText: {
-    fontSize: 16,
-    color: '#64748b',
-  },
-  loginLink: {
-    fontSize: 16,
-    color: '#2563eb',
-    fontWeight: '600',
-  },
+  container: { flex: 1, backgroundColor: '#f8fafc' },
+  keyboardView: { flex: 1 },
+  header: { paddingHorizontal: 24, paddingVertical: 32 },
+  backButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#ffffff', justifyContent: 'center', alignItems: 'center', marginBottom: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
+  title: { fontSize: 32, fontWeight: 'bold', color: '#1e293b', marginBottom: 8 },
+  subtitle: { fontSize: 16, color: '#64748b' },
+  form: { flex: 1, paddingHorizontal: 24 },
+  inputContainer: { marginBottom: 24 },
+  label: { fontSize: 16, fontWeight: '500', color: '#374151', marginBottom: 8 },
+  input: { backgroundColor: '#ffffff', paddingHorizontal: 16, paddingVertical: 16, borderRadius: 12, fontSize: 16, borderWidth: 1, borderColor: '#e5e7eb' },
+  passwordContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#ffffff', borderRadius: 12, borderWidth: 1, borderColor: '#e5e7eb' },
+  passwordInput: { flex: 1, paddingHorizontal: 16, paddingVertical: 16, fontSize: 16 },
+  eyeButton: { paddingHorizontal: 16 },
+  registerButton: { backgroundColor: '#2563eb', paddingVertical: 16, borderRadius: 12, alignItems: 'center', marginTop: 8, marginBottom: 24, minHeight: 54 },
+  disabledButton: { opacity: 0.6 },
+  registerButtonText: { color: '#ffffff', fontSize: 16, fontWeight: '600' },
+  loginContainer: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingBottom: 32 },
+  loginText: { fontSize: 16, color: '#64748b' },
+  loginLink: { fontSize: 16, color: '#2563eb', fontWeight: '600' },
 });

@@ -6,9 +6,10 @@ export default function AuthLayout() {
       <Stack.Screen name="welcome" />
       <Stack.Screen name="login" />
       <Stack.Screen name="register" />
+      <Stack.Screen name="verify-email" />
+      <Stack.Screen name="complete-profile" />
       <Stack.Screen name="pending" />
       <Stack.Screen name="rejected" />
-      <Stack.Screen name="complete-profile" />
     </Stack>
   );
 }

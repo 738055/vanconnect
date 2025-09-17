@@ -25,24 +25,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchProfile(session.user.id);
-      } else {
-        setLoading(false);
-      }
-    });
-
-    // Listen for auth changes
     const { data: { subscription: authSubscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         setSession(session);
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          await fetchProfile(session.user.id);
+        const currentUser = session?.user ?? null;
+        setUser(currentUser);
+
+        if (currentUser) {
+          await fetchProfile(currentUser.id);
         } else {
           setProfile(null);
           setSubscription(null);
@@ -58,81 +48,94 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const fetchProfile = async (userId: string) => {
     try {
-      setLoading(true);
+      if (!loading) setLoading(true);
       
-      // Fetch profile
       const { data: profileData, error: profileError } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
-        .single();
+        .maybeSingle();
 
-      if (profileError) {
-        console.error('Error fetching profile:', profileError);
-      } else {
-        setProfile(profileData);
-      }
+      if (profileError) throw profileError;
+      setProfile(profileData);
 
-      // Fetch subscription
-      const { data: subscriptionData, error: subscriptionError } = await supabase
-        .from('subscriptions')
-        .select('*')
-        .eq('user_id', userId)
-        .single();
-
-      if (subscriptionError) {
-        console.log('No subscription found, creating default...');
-        // Create default free subscription
-        const { data: newSubscription } = await supabase
+      if (profileData) {
+        const { data: subscriptionData } = await supabase
           .from('subscriptions')
-          .insert({
-            user_id: userId,
-            plan: 'free',
-            status: 'active',
-          })
-          .select()
-          .single();
-        setSubscription(newSubscription);
+          .select('*')
+          .eq('user_id', userId)
+          .maybeSingle();
+        
+        setSubscription(subscriptionData || null);
       } else {
-        setSubscription(subscriptionData);
+        setSubscription(null);
       }
     } catch (error) {
-      console.error('Error in fetchProfile:', error);
+      console.error('Error fetching profile and subscription:', error);
+      setProfile(null);
+      setSubscription(null);
     } finally {
       setLoading(false);
     }
   };
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    return { error };
+    return supabase.auth.signInWithPassword({ email, password });
   };
 
   const signUp = async (email: string, password: string, fullName: string) => {
-    const { data, error } = await supabase.auth.signUp({
+    const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        data: {
+          full_name: fullName,
+        },
+      },
     });
 
-    if (!error && data.user) {
-      // Create profile
-      await supabase
-        .from('profiles')
-        .insert({
-          id: data.user.id,
-          full_name: fullName,
-          status: 'pending',
-        });
+    if (authError) {
+      return { error: authError };
     }
 
-    return { error };
+    if (!authData.user) {
+      return { error: new Error("Utilizador não encontrado após o registo.") };
+    }
+    
+    /**
+     * ✅ CORREÇÃO: Troca de .insert() para .upsert() com ignoreDuplicates.
+     * Isso tenta inserir um novo perfil. Se um perfil com a mesma 'id' já existir,
+     * a operação é ignorada em vez de causar um erro de chave duplicada.
+     * Isso resolve o problema de um usuário tentar se registrar novamente com o mesmo e-mail.
+     */
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .upsert(
+        {
+          id: authData.user.id,
+          full_name: fullName,
+          status: 'onboarding'
+        },
+        {
+          onConflict: 'id',
+          ignoreDuplicates: true,
+        }
+      );
+
+    if (profileError) {
+      console.error("Erro ao criar/verificar perfil:", profileError);
+      return { error: profileError };
+    }
+    
+    return { error: null };
   };
 
   const signOut = async () => {
     await supabase.auth.signOut();
+    setUser(null);
+    setProfile(null);
+    setSubscription(null);
+    setSession(null);
   };
 
   const refreshProfile = async () => {
@@ -143,17 +146,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   return (
     <AuthContext.Provider
-      value={{
-        user,
-        profile,
-        subscription,
-        session,
-        loading,
-        signIn,
-        signUp,
-        signOut,
-        refreshProfile,
-      }}
+      value={{ user, profile, subscription, session, loading, signIn, signUp, signOut, refreshProfile }}
     >
       {children}
     </AuthContext.Provider>
@@ -162,7 +155,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (!context) {
+  if (context === undefined) {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;

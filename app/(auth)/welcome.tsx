@@ -3,15 +3,11 @@ import {
   View,
   Text,
   StyleSheet,
-  Image,
   TouchableOpacity,
   SafeAreaView,
-  Dimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Truck, Users, Star } from 'lucide-react-native';
-
-const { width, height } = Dimensions.get('window');
 
 export default function WelcomeScreen() {
   const router = useRouter();
@@ -88,6 +84,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 24,
     paddingVertical: 32,
+    justifyContent: 'space-between',
   },
   header: {
     alignItems: 'center',
@@ -116,6 +113,7 @@ const styles = StyleSheet.create({
   },
   featuresContainer: {
     flex: 1,
+    justifyContent: 'center',
     gap: 16,
   },
   featureCard: {
@@ -128,6 +126,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 8,
     elevation: 3,
+    alignItems: 'center',
   },
   featureIcon: {
     marginRight: 16,

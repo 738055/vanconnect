@@ -6,9 +6,9 @@ import {
   TouchableOpacity,
   SafeAreaView,
   StyleSheet,
-  Alert,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
@@ -40,9 +40,12 @@ export default function LoginScreen() {
       Toast.show({
         type: 'error',
         text1: 'Erro no login',
-        text2: error.message,
+        text2: error.message || "Email ou senha inválidos.",
       });
     }
+    // Não é necessário redirecionar aqui. O layout principal (root _layout)
+    // vai detetar a mudança no estado de autenticação e redirecionar
+    // para a tela correta com base no status do perfil.
     setLoading(false);
   };
 
@@ -108,9 +111,7 @@ export default function LoginScreen() {
             onPress={handleLogin}
             disabled={loading}
           >
-            <Text style={styles.loginButtonText}>
-              {loading ? 'Entrando...' : 'Entrar'}
-            </Text>
+            {loading ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.loginButtonText}>Entrar</Text>}
           </TouchableOpacity>
 
           <View style={styles.registerContainer}>
@@ -126,107 +127,23 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f8fafc',
-  },
-  keyboardView: {
-    flex: 1,
-  },
-  header: {
-    paddingHorizontal: 24,
-    paddingVertical: 32,
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#ffffff',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#1e293b',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#64748b',
-  },
-  form: {
-    flex: 1,
-    paddingHorizontal: 24,
-    gap: 24,
-  },
-  inputContainer: {
-    gap: 8,
-  },
-  label: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#374151',
-  },
-  input: {
-    backgroundColor: '#ffffff',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    borderRadius: 12,
-    fontSize: 16,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-  },
-  passwordContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-  },
-  passwordInput: {
-    flex: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    fontSize: 16,
-  },
-  eyeButton: {
-    paddingHorizontal: 16,
-  },
-  loginButton: {
-    backgroundColor: '#2563eb',
-    paddingVertical: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  disabledButton: {
-    opacity: 0.6,
-  },
-  loginButtonText: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  registerContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  registerText: {
-    fontSize: 16,
-    color: '#64748b',
-  },
-  registerLink: {
-    fontSize: 16,
-    color: '#2563eb',
-    fontWeight: '600',
-  },
+  container: { flex: 1, backgroundColor: '#f8fafc' },
+  keyboardView: { flex: 1 },
+  header: { paddingHorizontal: 24, paddingVertical: 32 },
+  backButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#ffffff', justifyContent: 'center', alignItems: 'center', marginBottom: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
+  title: { fontSize: 32, fontWeight: 'bold', color: '#1e293b', marginBottom: 8 },
+  subtitle: { fontSize: 16, color: '#64748b' },
+  form: { flex: 1, paddingHorizontal: 24, gap: 24 },
+  inputContainer: { gap: 8 },
+  label: { fontSize: 16, fontWeight: '500', color: '#374151' },
+  input: { backgroundColor: '#ffffff', paddingHorizontal: 16, paddingVertical: 16, borderRadius: 12, fontSize: 16, borderWidth: 1, borderColor: '#e5e7eb' },
+  passwordContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#ffffff', borderRadius: 12, borderWidth: 1, borderColor: '#e5e7eb' },
+  passwordInput: { flex: 1, paddingHorizontal: 16, paddingVertical: 16, fontSize: 16 },
+  eyeButton: { paddingHorizontal: 16 },
+  loginButton: { backgroundColor: '#2563eb', paddingVertical: 16, borderRadius: 12, alignItems: 'center', marginTop: 8, minHeight: 54 },
+  disabledButton: { opacity: 0.6 },
+  loginButtonText: { color: '#ffffff', fontSize: 16, fontWeight: '600' },
+  registerContainer: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
+  registerText: { fontSize: 16, color: '#64748b' },
+  registerLink: { fontSize: 16, color: '#2563eb', fontWeight: '600' },
 });
