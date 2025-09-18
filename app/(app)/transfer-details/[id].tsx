@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { supabase } from '../../../lib/supabase';
-import { Car, MapPin, Clock, Users, MessageSquare, DollarSign, X, CheckCircle } from 'lucide-react-native';
+import { Car, MapPin, Clock, Users, MessageSquare, DollarSign, X, CheckCircle, Phone, Building } from 'lucide-react-native';
 import { useAuth } from '../../../contexts/AuthContext';
 
 type TransferDetails = {
@@ -41,11 +41,18 @@ type TransferDetails = {
   }
 };
 
+type PassengerDetail = {
+  full_name: string;
+  phone: string | null;
+  hotel: string | null;
+};
+
 export default function TransferDetailsScreen() {
   const { id: transferId } = useLocalSearchParams();
   const router = useRouter();
   const { profile } = useAuth();
   const [transfer, setTransfer] = useState<TransferDetails | null>(null);
+  const [passengers, setPassengers] = useState<PassengerDetail[]>([]);
   const [loading, setLoading] = useState(true);
   
   const [isBookingModalVisible, setBookingModalVisible] = useState(false);
@@ -70,6 +77,21 @@ export default function TransferDetailsScreen() {
         .single();
       if (error) throw error;
       setTransfer(data as any);
+
+      // ✅ Usando uma consulta mais robusta para obter os passageiros, juntando as tabelas.
+      if (profile?.id === data.creator_id) {
+        const { data: passengersData, error: passengersError } = await supabase
+          .from('transfer_participations')
+          .select(`passengers(full_name, phone, hotel)`)
+          .eq('transfer_id', transferId);
+        if (passengersError) throw passengersError;
+        
+        // Aplana a estrutura de dados para o estado de passageiros
+        const flatPassengers = passengersData.flatMap(p => p.passengers);
+        setPassengers(flatPassengers as any);
+      } else {
+        setPassengers([]);
+      }
     } catch (error: any) {
       console.error('Error fetching transfer details:', error);
       Alert.alert('Erro', `Não foi possível carregar os detalhes do transfer: ${error.message}`);
@@ -81,7 +103,7 @@ export default function TransferDetailsScreen() {
 
   useFocusEffect(useCallback(() => {
     fetchTransferDetails();
-  }, [transferId]));
+  }, [transferId, profile?.id]));
 
   const getAvailableSeats = () => (transfer?.total_seats || 0) - (transfer?.occupied_seats || 0);
 
@@ -96,6 +118,7 @@ export default function TransferDetailsScreen() {
       Alert.alert('Atenção', `Este transfer só tem ${availableSeats} vagas disponíveis.`);
       return;
     }
+
     router.push({
       pathname: '/(app)/booking/add-passengers', 
       params: {
@@ -154,10 +177,9 @@ export default function TransferDetailsScreen() {
     );
   }
 
-  // ✅ LÓGICA ATUALIZADA
   const departureTime = new Date(transfer.departure_time + 'Z');
-  // O botão agora é habilitado imediatamente após o horário de partida
-  const canFinalize = currentTime > departureTime;
+  const canFinalize = new Date() > departureTime;
+  const isCreator = profile?.id === transfer.creator_id;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -199,12 +221,47 @@ export default function TransferDetailsScreen() {
                 <View style={styles.separator} />
                 <View style={styles.detailItem}><DollarSign size={20} color="#2563eb" /><View><Text style={styles.detailLabel}>Preço</Text><Text style={styles.detailText}>R$ {transfer.price_per_seat?.toFixed(2) || '0.00'} por vaga</Text></View></View>
             </View>
-            {transfer.observations && (<View style={styles.obsCard}><View style={styles.obsHeader}><MessageSquare size={20} color="#2563eb" /><Text style={styles.obsTitle}>Observações</Text></View><Text style={styles.obsText}>{transfer.observations}</Text></View>)}
+
+            {/* Renderizar seções extras apenas para o criador */}
+            {isCreator && (
+              <>
+                <View style={styles.passengersCard}>
+                  <Text style={styles.passengersTitle}>Passageiros Reservados</Text>
+                  {passengers.length > 0 ? (
+                    passengers.map((passenger, index) => (
+                      <View key={index} style={styles.passengerItem}>
+                        <Text style={styles.passengerName}>{passenger.full_name}</Text>
+                        <View style={styles.passengerInfo}>
+                            <Building size={16} color="#475569" />
+                            <Text style={styles.passengerText}>{passenger.hotel || 'Não informado'}</Text>
+                        </View>
+                        <View style={styles.passengerInfo}>
+                            <Phone size={16} color="#475569" />
+                            <Text style={styles.passengerText}>{passenger.phone || 'Não informado'}</Text>
+                        </View>
+                      </View>
+                    ))
+                  ) : (
+                    <Text style={styles.noPassengersText}>Nenhum passageiro reservou vagas ainda.</Text>
+                  )}
+                </View>
+                
+                {transfer.observations && (
+                  <View style={styles.obsCard}>
+                    <View style={styles.obsHeader}>
+                      <MessageSquare size={20} color="#2563eb" />
+                      <Text style={styles.obsTitle}>Observações</Text>
+                    </View>
+                    <Text style={styles.obsText}>{transfer.observations}</Text>
+                  </View>
+                )}
+              </>
+            )}
         </View>
       </ScrollView>
 
       <View style={styles.footer}>
-        {profile?.id === transfer.creator_id ? (
+        {isCreator ? (
           <TouchableOpacity
             style={[styles.finalizeButton, (!canFinalize || transfer.status === 'completed') && styles.disabledButton]}
             onPress={handleFinalizeTransfer}
@@ -254,6 +311,13 @@ const styles = StyleSheet.create({
   obsHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
   obsTitle: { fontSize: 16, fontWeight: '600', color: '#1e293b' },
   obsText: { fontSize: 14, color: '#475569', lineHeight: 20 },
+  passengersCard: { backgroundColor: '#ffffff', padding: 20, borderRadius: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 3, },
+  passengersTitle: { fontSize: 18, fontWeight: 'bold', color: '#1e293b', marginBottom: 12 },
+  passengerItem: { flexDirection: 'column', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
+  passengerName: { fontSize: 16, fontWeight: '500', color: '#1e293b', marginBottom: 4 },
+  passengerInfo: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+  passengerText: { fontSize: 14, color: '#475569' },
+  noPassengersText: { fontSize: 14, color: '#64748b' },
   footer: { padding: 24, backgroundColor: '#ffffff', borderTopWidth: 1, borderTopColor: '#e5e7eb' },
   participateButton: { backgroundColor: '#2563eb', paddingVertical: 16, borderRadius: 12, alignItems: 'center', },
   participateButtonText: { color: '#ffffff', fontSize: 16, fontWeight: '600', },

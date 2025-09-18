@@ -12,7 +12,7 @@ type TransferWithDetails = Transfer & {
     origin_description: string;
     destination_description: string;
   };
-  profiles: { // ✅ CORREÇÃO: Removidas as colunas de avaliação
+  profiles: {
     full_name: string;
     phone: string | null;
   };
@@ -32,324 +32,156 @@ export default function TransfersScreen() {
 
   const [isModalVisible, setModalVisible] = useState(false);
   const [selectedTransfer, setSelectedTransfer] = useState<TransferWithDetails | null>(null);
-  const [seatsToRequest, setSeatsToRequest] = useState('1');
-
-  const [isObsModalVisible, setObsModalVisible] = useState(false);
 
   const fetchTransfers = async () => {
-  setLoading(true);
-  try {
-    const { data, error } = await supabase
-      .from('transfers')
-      .select(`
-        *,
-        transfer_types ( * ),
-        profiles:creator_id (
-          full_name,
-          phone
-        ),
-        vehicles ( * )
-      `)
-      .eq('visibility', 'public')
-      .in('status', ['available', 'full'])
-      .gte('departure_time', new Date().toISOString())
-      // ✅ CORREÇÃO: Usando 'departure_time' para ordenar
-      .order('departure_time', { ascending: true });
-      
-    if (error) throw error;
-      
-    setTransfers(data as TransferWithDetails[] || []);
-    setFilteredTransfers(data as TransferWithDetails[] || []);
-  } catch (error: any) {
-    console.error('Error fetching transfers:', error);
-    Alert.alert(
-      'Erro ao Carregar Viagens',
-      `Não foi possível buscar os dados. Verifique sua conexão e as configurações do Supabase.\n\nDetalhes: ${error.message}`
-    );
-  } finally {
-    setLoading(false);
-  }
-};
-
-  useFocusEffect(
-    useCallback(() => {
-      fetchTransfers();
-    }, [])
-  );
-
-  useEffect(() => {
-    if (searchQuery.trim() === '') {
-      setFilteredTransfers(transfers);
-    } else {
-      const lowercasedQuery = searchQuery.toLowerCase();
-      const filtered = transfers.filter(transfer =>
-        transfer.transfer_types.title.toLowerCase().includes(lowercasedQuery) ||
-        transfer.transfer_types.origin_description?.toLowerCase().includes(lowercasedQuery) ||
-        transfer.transfer_types.destination_description?.toLowerCase().includes(lowercasedQuery)
-      );
-      setFilteredTransfers(filtered);
-    }
-  }, [searchQuery, transfers]);
-
-  const openParticipationModal = (transfer: TransferWithDetails) => {
-    setSelectedTransfer(transfer);
-    setSeatsToRequest('1');
-    setModalVisible(true);
-  };
-
-  const openObsModal = (transfer: TransferWithDetails) => {
-    setSelectedTransfer(transfer);
-    setObsModalVisible(true);
-  };
-
-  const handleConfirmParticipation = async () => {
-    if (!profile || !selectedTransfer) return;
-
-    const seats = parseInt(seatsToRequest);
-    const availableSeats = getAvailableSeats(selectedTransfer);
-
-    if (isNaN(seats) || seats <= 0) {
-      Alert.alert('Erro', 'Por favor, insira um número de vagas válido.');
-      return;
-    }
-    if (seats > availableSeats) {
-      Alert.alert('Vagas Insuficientes', `Este transfer só tem ${availableSeats} vagas disponíveis.`);
-      return;
-    }
-
-    const totalPrice = seats * (selectedTransfer.price_per_seat || 0);
-
+    setLoading(true);
     try {
-      const { error } = await supabase
-        .from('transfer_participations')
-        .insert({
-          transfer_id: selectedTransfer.id,
-          participant_id: profile.id,
-          seats_requested: seats,
-          status: 'pending',
-          total_price: totalPrice,
-        });
+      const { data, error } = await supabase
+        .from('transfers')
+        .select(`
+          *,
+          transfer_types(*),
+          profiles:creator_id(*),
+          vehicles(*)
+        `)
+        .eq('status', 'available');
 
       if (error) {
-        if (error.code === '23505') {
-          Alert.alert('Atenção', 'Você já solicitou participação neste transfer!');
-        } else {
-          throw error;
-        }
-      } else {
-        Alert.alert('Sucesso!', 'Sua solicitação foi enviada ao criador do transfer.');
+        throw error;
       }
-    } catch (error) {
-      console.error('Error requesting participation:', error);
-      Alert.alert('Erro', 'Não foi possível enviar sua solicitação.');
+      setTransfers(data || []);
+    } catch (error: any) {
+      Alert.alert('Erro', `Não foi possível carregar os transfers: ${error.message}`);
+      console.error('Error fetching transfers:', error);
     } finally {
-      setModalVisible(false);
+      setLoading(false);
     }
   };
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
-  };
+  useFocusEffect(useCallback(() => {
+    fetchTransfers();
+  }, []));
 
-  const getAvailableSeats = (transfer: Transfer) => {
-    return transfer.total_seats - transfer.occupied_seats;
-  };
+  useEffect(() => {
+    const filterTransfers = () => {
+      const query = searchQuery.toLowerCase();
+      if (!query) {
+        setFilteredTransfers(transfers);
+        return;
+      }
 
-  if (loading) {
+      const filtered = transfers.filter(transfer => {
+        const route = `${transfer.transfer_types.origin_description} -> ${transfer.transfer_types.destination_description}`.toLowerCase();
+        const transferType = transfer.transfer_types.title.toLowerCase();
+        const vehicle = transfer.vehicles.model.toLowerCase();
+        const creatorName = transfer.profiles.full_name.toLowerCase();
+        return route.includes(query) || transferType.includes(query) || vehicle.includes(query) || creatorName.includes(query);
+      });
+      setFilteredTransfers(filtered);
+    };
+
+    filterTransfers();
+  }, [searchQuery, transfers]);
+
+  const renderTransferCard = (transfer: TransferWithDetails) => {
+    const isFull = transfer.occupied_seats >= transfer.total_seats;
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#2563eb" />
-      </View>
-    );
-  }
+      <TouchableOpacity
+        key={transfer.id}
+        style={styles.transferCard}
+        onPress={() => router.push(`/(app)/transfer-details/${transfer.id}`)}
+      >
+        <View style={styles.cardHeader}>
+          <Text style={styles.transferTitle}>{transfer.transfer_types.title}</Text>
+          <View style={styles.priceContainer}>
+            <Text style={styles.priceText}>R$ {transfer.price_per_seat?.toFixed(2) || '0.00'}</Text>
+            <Text style={styles.pricePerSeatText}>por vaga</Text>
+          </View>
+        </View>
 
+        <View style={styles.transferDetailsContainer}>
+            <View style={styles.detailRow}>
+              <Car size={16} color="#475569" />
+              <Text style={styles.detailText}>{transfer.vehicles.model}</Text>
+            </View>
+            <View style={styles.detailRow}>
+              <Clock size={16} color="#475569" />
+              <Text style={styles.detailText}>{new Date(transfer.departure_time).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</Text>
+            </View>
+            <View style={styles.detailRow}>
+              <MapPin size={16} color="#475569" />
+              <Text style={styles.detailText} numberOfLines={1}>{transfer.transfer_types.origin_description} → {transfer.transfer_types.destination_description}</Text>
+            </View>
+        </View>
+
+        <View style={styles.footer}>
+          <View style={styles.seatsInfo}>
+            <Users size={16} color="#2563eb" />
+            <Text style={styles.seatsText}>{transfer.occupied_seats} de {transfer.total_seats} vagas</Text>
+          </View>
+          <View style={styles.statusBadge}>
+            <Text style={styles.statusText}>{isFull ? 'Lotado' : 'Disponível'}</Text>
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+  
   return (
     <SafeAreaView style={styles.container}>
-      <Modal
-        animationType="fade"
-        transparent={true}
-        visible={isModalVisible}
-        onRequestClose={() => setModalVisible(false)}
-      >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Solicitar Vagas</Text>
-              <TouchableOpacity onPress={() => setModalVisible(false)}>
-                <X size={24} color="#64748b" />
-              </TouchableOpacity>
-            </View>
-            <Text style={styles.modalTransferTitle}>{selectedTransfer?.transfer_types.title}</Text>
-            <Text style={styles.modalInfo}>Vagas disponíveis: {selectedTransfer ? getAvailableSeats(selectedTransfer) : 0}</Text>
-            <Text style={styles.modalInfo}>Preço por vaga: R$ {selectedTransfer?.price_per_seat?.toFixed(2) || '0.00'}</Text>
-
-            <Text style={styles.label}>Quantas vagas você deseja?</Text>
-            <TextInput
-              style={styles.modalInput}
-              keyboardType="numeric"
-              value={seatsToRequest}
-              onChangeText={setSeatsToRequest}
-              placeholder="Ex: 2"
-            />
-
-            <TouchableOpacity style={styles.confirmButton} onPress={handleConfirmParticipation}>
-              <Text style={styles.confirmButtonText}>Confirmar Solicitação</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal
-        animationType="fade"
-        transparent={true}
-        visible={isObsModalVisible}
-        onRequestClose={() => setObsModalVisible(false)}
-      >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Observações do Transfer</Text>
-              <TouchableOpacity onPress={() => setObsModalVisible(false)}>
-                <X size={24} color="#64748b" />
-              </TouchableOpacity>
-            </View>
-            <ScrollView>
-              <Text style={styles.obsText}>{selectedTransfer?.observations || 'Nenhuma observação informada.'}</Text>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
       <View style={styles.header}>
-        <Text style={styles.title}>Vitrine de Transfers</Text>
-        <Text style={styles.subtitle}>Encontre e participe de viagens</Text>
-      </View>
-      <View style={styles.searchContainer}>
+        <Text style={styles.headerTitle}>Encontre seu transfer</Text>
         <View style={styles.searchBar}>
           <Search size={20} color="#64748b" />
-          <TextInput style={styles.searchInput} placeholder="Buscar por título ou local..." value={searchQuery} onChangeText={setSearchQuery} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Pesquisar por rota, hotel ou motorista"
+            placeholderTextColor="#94a3b8"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
         </View>
-        <TouchableOpacity style={styles.filterButton}><Filter size={20} color="#64748b" /></TouchableOpacity>
       </View>
-
-      <ScrollView style={styles.scrollView} refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchTransfers} />}>
-        {filteredTransfers.length > 0 ? (
-          filteredTransfers.map((transfer) => {
-            const isMyOwnTransfer = transfer.creator_id === profile?.id;
-            const isFull = transfer.status === 'full';
-            const canParticipate = !isMyOwnTransfer && !isFull;
-
-            return (
-              <View key={transfer.id} style={styles.transferCard}>
-                <TouchableOpacity onPress={() => router.push({ pathname: '/(app)/transfer-details/[id]', params: { id: transfer.id } })}>
-                  <View style={styles.transferHeader}>
-                    <Text style={styles.transferTitle}>{transfer.transfer_types.title}</Text>
-                    <View style={styles.priceContainer}>
-                      <Text style={styles.price}>R$ {transfer.price_per_seat?.toFixed(2) || '0.00'}</Text>
-                      <Text style={styles.priceLabel}>por vaga</Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.vehicleInfoContainer}>
-                    {transfer.vehicles && (<View style={styles.vehicleInfoItem}><Car size={16} color="#64748b" /><Text style={styles.vehicleInfoText}>{transfer.vehicles.model} ({transfer.vehicles.plate})</Text></View>)}
-                  </View>
-
-                  <View style={styles.routeContainer}>
-                    <View style={styles.routeItem}><MapPin size={16} color="#64748b" /><Text style={styles.routeText} numberOfLines={1}>{transfer.transfer_types.origin_description}</Text></View>
-                    <Text style={styles.routeArrow}>→</Text>
-                    <View style={styles.routeItem}><MapPin size={16} color="#64748b" /><Text style={styles.routeText} numberOfLines={1}>{transfer.transfer_types.destination_description}</Text></View>
-                  </View>
-                  <View style={styles.transferDetails}>
-                    <View style={styles.detailItem}><Clock size={16} color="#64748b" /><Text style={styles.detailText}>{formatDate(transfer.departure_time)}</Text></View>
-                    <View style={styles.detailItem}><Users size={16} color="#64748b" /><Text style={styles.detailText}>{getAvailableSeats(transfer)} vagas disponíveis</Text></View>
-                  </View>
-                </TouchableOpacity>
-                <View style={styles.transferFooter}>
-                  <View style={styles.creatorInfo}>
-                    <View style={styles.avatarPlaceholder}><Text style={styles.avatarText}>{(transfer.profiles?.full_name?.charAt(0) || 'U')}</Text></View>
-                    <Text style={styles.creatorName}>{transfer.profiles?.full_name || 'Usuário'}</Text>
-                    {transfer.observations && (
-                      <TouchableOpacity onPress={() => openObsModal(transfer)} style={styles.obsButton}>
-                        <MessageSquare size={16} color="#64748b" />
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                  <TouchableOpacity
-                    style={[styles.participateButton, !canParticipate && styles.disabledButton]}
-                    onPress={() => openParticipationModal(transfer)}
-                    disabled={!canParticipate}
-                  >
-                    <Text style={[styles.participateButtonText, !canParticipate && styles.disabledButtonText]}>
-                      {isFull ? 'Lotado' : isMyOwnTransfer ? 'Seu Transfer' : 'Participar'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )
-          })
-        ) : (
-          <View style={styles.emptyState}>
-            <Search size={48} color="#cbd5e1" />
-            <Text style={styles.emptyTitle}>Nenhum transfer encontrado</Text>
-            <Text style={styles.emptyDescription}>Tente ajustar sua pesquisa ou aguarde por novos transfers</Text>
+      
+      {loading ? (
+        <View style={styles.centered}><ActivityIndicator size="large" color="#2563eb" /></View>
+      ) : (
+        <ScrollView style={styles.scrollView} refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchTransfers} />}>
+          <View style={styles.transfersList}>
+            {filteredTransfers.length > 0 ? (
+              filteredTransfers.map(renderTransferCard)
+            ) : (
+              <View style={styles.centered}><Text style={styles.emptyText}>Nenhum transfer encontrado. Tente ajustar a busca.</Text></View>
+            )}
           </View>
-        )}
-      </ScrollView>
+        </ScrollView>
+      )}
     </SafeAreaView>
   );
 }
 
-// ... ESTILOS ...
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
-  header: { paddingHorizontal: 24, paddingVertical: 32, backgroundColor: '#ffffff' },
-  title: { fontSize: 24, fontWeight: 'bold', color: '#1e293b', marginBottom: 4 },
-  subtitle: { fontSize: 16, color: '#64748b' },
-  searchContainer: { flexDirection: 'row', paddingHorizontal: 24, paddingVertical: 16, backgroundColor: '#ffffff', gap: 12 },
-  searchBar: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', paddingHorizontal: 16, borderRadius: 12, gap: 8 },
-  searchInput: { flex: 1, paddingVertical: 12, fontSize: 16, color: '#1e293b' },
-  filterButton: { width: 44, height: 44, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f8fafc', borderRadius: 12 },
-  scrollView: { flex: 1, paddingHorizontal: 24, paddingTop: 8 },
-  transferCard: { backgroundColor: '#ffffff', marginBottom: 16, borderRadius: 16, padding: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 3 },
-  transferHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 },
-  transferTitle: { fontSize: 18, fontWeight: '600', color: '#1e293b', flex: 1, marginRight: 16 },
+  container: { flex: 1, backgroundColor: '#f1f5f9' },
+  header: { backgroundColor: '#ffffff', padding: 24, borderBottomLeftRadius: 16, borderBottomRightRadius: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 3, },
+  headerTitle: { fontSize: 24, fontWeight: 'bold', color: '#1e293b', marginBottom: 16 },
+  searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f1f5f9', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12 },
+  searchInput: { flex: 1, marginLeft: 12, fontSize: 16, color: '#1e293b' },
+  scrollView: { flex: 1 },
+  transfersList: { padding: 24, paddingTop: 16 },
+  transferCard: { backgroundColor: '#ffffff', borderRadius: 16, padding: 20, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 3 },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 },
+  transferTitle: { fontSize: 18, fontWeight: 'bold', color: '#1e293b', flex: 1, marginRight: 16 },
   priceContainer: { alignItems: 'flex-end' },
-  price: { fontSize: 20, fontWeight: 'bold', color: '#10b981' },
-  priceLabel: { fontSize: 12, color: '#64748b' },
-  routeContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 16, gap: 12 },
-  routeItem: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 },
-  routeText: { fontSize: 14, color: '#64748b', flex: 1 },
-  routeArrow: { fontSize: 16, color: '#64748b', fontWeight: 'bold' },
-  transferDetails: { flexDirection: 'row', gap: 24, marginBottom: 16 },
-  detailItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  detailText: { fontSize: 14, color: '#64748b' },
-  transferFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: '#f1f5f9', paddingTop: 16, marginTop: 16 },
-  creatorInfo: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  avatarPlaceholder: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#2563eb', justifyContent: 'center', alignItems: 'center' },
-  avatarText: { fontSize: 14, fontWeight: '600', color: '#ffffff' },
-  creatorName: { fontSize: 14, fontWeight: '500', color: '#1e293b' },
-  participateButton: { backgroundColor: '#2563eb', paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8 },
-  disabledButton: { backgroundColor: '#e5e7eb' },
-  participateButtonText: { color: '#ffffff', fontSize: 14, fontWeight: '600' },
-  disabledButtonText: { color: '#9ca3af' },
-  emptyState: { alignItems: 'center', paddingVertical: 64 },
-  emptyTitle: { fontSize: 18, fontWeight: '600', color: '#64748b', marginTop: 16, marginBottom: 8 },
-  emptyDescription: { fontSize: 14, color: '#94a3b8', textAlign: 'center', lineHeight: 20 },
-  modalContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0, 0, 0, 0.5)' },
-  modalContent: { width: '90%', backgroundColor: '#ffffff', borderRadius: 16, padding: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 5 },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  modalTitle: { fontSize: 20, fontWeight: 'bold', color: '#1e293b' },
-  modalTransferTitle: { fontSize: 16, fontWeight: '500', color: '#475569', marginBottom: 4 },
-  modalInfo: { fontSize: 14, color: '#64748b', marginBottom: 16 },
-  label: { fontSize: 16, fontWeight: '500', color: '#374151', marginBottom: 8 },
-  modalInput: { backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 8, padding: 12, fontSize: 16, marginBottom: 24 },
-  confirmButton: { backgroundColor: '#10b981', paddingVertical: 14, borderRadius: 8, alignItems: 'center' },
-  confirmButtonText: { color: '#ffffff', fontSize: 16, fontWeight: '600' },
-  vehicleInfoContainer: { flexDirection: 'row', gap: 24, marginBottom: 16 },
-  vehicleInfoItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  vehicleInfoText: { fontSize: 14, color: '#64748b' },
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  obsButton: { padding: 6, borderRadius: 8, backgroundColor: '#e2e8f0' },
-  obsText: { fontSize: 16, color: '#1e293b', lineHeight: 24 },
+  priceText: { fontSize: 20, fontWeight: 'bold', color: '#10b981' },
+  pricePerSeatText: { fontSize: 12, color: '#64748b' },
+  transferDetailsContainer: { marginBottom: 16, gap: 12 },
+  detailRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  detailText: { fontSize: 14, color: '#475569', flex: 1 },
+  footer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: '#f1f5f9', paddingTop: 16 },
+  seatsInfo: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  seatsText: { fontSize: 14, fontWeight: '500', color: '#2563eb' },
+  statusBadge: { backgroundColor: '#e2e8f0', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 20 },
+  statusText: { fontSize: 12, fontWeight: '600', color: '#64748b' },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
+  emptyText: { fontSize: 16, color: '#64748b', textAlign: 'center' },
 });

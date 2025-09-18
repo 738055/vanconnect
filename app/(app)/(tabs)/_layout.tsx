@@ -1,9 +1,12 @@
 import { Tabs } from 'expo-router';
 import { useAuth } from '../../../contexts/AuthContext';
-import { Home, Search, Plus, User, Bell, Building2 as Building } from 'lucide-react-native';
-import { View, Text, StyleSheet } from 'react-native';
+import { Home, Search, Plus, User, Bell, LayoutList } from 'lucide-react-native';
+import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { useNotifications } from '../../../contexts/NotificationContext';
+import { useEffect } from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+// Componente para o ícone de sino com contador de notificações
 const bellIcon = (size: number, color: string, notificationCount: number) => {
   return (
     <View style={styles.iconContainer}>
@@ -18,11 +21,26 @@ const bellIcon = (size: number, color: string, notificationCount: number) => {
 };
 
 export default function TabLayout() {
-  const { subscription } = useAuth();
-  const { unreadCount } = useNotifications();
+  const { subscription, loading } = useAuth();
+  const { unreadCount, refetch } = useNotifications();
+  const insets = useSafeAreaInsets();
 
+  useEffect(() => {
+    refetch();
+  }, [refetch]);
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#2563eb" />
+      </View>
+    );
+  }
+
+  // A variável isPaidUser foi mantida, mas não está sendo usada para controlar a renderização dos ícones
   const isPro = subscription?.plan === 'pro';
   const isEnterprise = subscription?.plan === 'enterprise';
+  const isPaidUser = isPro || isEnterprise;
 
   return (
     <Tabs
@@ -34,16 +52,13 @@ export default function TabLayout() {
           backgroundColor: '#ffffff',
           borderTopWidth: 1,
           borderTopColor: '#e5e7eb',
-          paddingBottom: 8,
+          paddingBottom: insets.bottom,
           paddingTop: 8,
-          height: 60,
+          height: 60 + insets.bottom,
         },
-        tabBarLabelStyle: {
-          fontSize: 12,
-          fontWeight: '500',
-        },
-      }}>
-      
+      }}
+    >
+      {/* 1. Início */}
       <Tabs.Screen
         name="index"
         options={{
@@ -54,6 +69,7 @@ export default function TabLayout() {
         }}
       />
 
+      {/* 2. Transfers */}
       <Tabs.Screen
         name="transfers"
         options={{
@@ -64,31 +80,38 @@ export default function TabLayout() {
         }}
       />
 
-      {(isPro || isEnterprise) ? (
-        <Tabs.Screen
-          name="create"
-          options={{
-            title: 'Criar',
-            tabBarIcon: ({ size, color }) => (
-              <Plus size={size} color={color} />
-            ),
-          }}
-        />
-      ) : null}
+      {/* 3. Criar */}
+      <Tabs.Screen
+        name="create"
+        options={{
+          title: 'Criar',
+          tabBarIcon: ({ size, color }) => (
+            <Plus size={size} color={color} />
+          ),
+        }}
+      />
 
-      {/* ✅ ALTERAÇÃO: Dashboard visível para Pro e Enterprise */}
-      {(isPro || isEnterprise) ? (
-        <Tabs.Screen
-          name="dashboard"
-          options={{
-            title: 'Dashboard',
-            tabBarIcon: ({ size, color }) => (
-              <Building size={size} color={color} />
-            ),
-          }}
-        />
-      ) : null}
+      {/* 4. Dashboard */}
+      <Tabs.Screen
+        name="dashboard"
+        options={{
+          title: 'Dashboard',
+          tabBarIcon: ({ size, color }) => (
+            <LayoutList size={size} color={color} />
+          ),
+        }}
+      />
 
+      {/* 5. Notificações */}
+      <Tabs.Screen
+        name="notifications"
+        options={{
+          title: 'Notificações',
+          tabBarIcon: ({ size, color }) => bellIcon(size, color, unreadCount),
+        }}
+      />
+      
+      {/* 6. Perfil */}
       <Tabs.Screen
         name="profile"
         options={{
@@ -96,14 +119,6 @@ export default function TabLayout() {
           tabBarIcon: ({ size, color }) => (
             <User size={size} color={color} />
           ),
-        }}
-      />
-      
-       <Tabs.Screen
-        name="notifications"
-        options={{
-          title: 'Notificações',
-          tabBarIcon: ({ size, color }) => bellIcon(size, color, unreadCount),
         }}
       />
     </Tabs>
@@ -129,5 +144,11 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 10,
     fontWeight: 'bold',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
   },
 });

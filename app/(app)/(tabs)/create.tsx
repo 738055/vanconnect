@@ -17,7 +17,6 @@ import { supabase } from '../../../lib/supabase';
 import { Vehicle } from '../../../types/database';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Calendar, Users, DollarSign, Car, ChevronDown, X } from 'lucide-react-native';
-// ✅ IMPORTAÇÃO CORRIGIDA: Usando a nova biblioteca
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 
 type TransferType = {
@@ -35,7 +34,6 @@ export default function CreateTransferScreen() {
   
   const [observations, setObservations] = useState('');
   const [departureDate, setDepartureDate] = useState(new Date());
-  // ✅ NOVO ESTADO PARA O NOVO PICKER
   const [isDatePickerVisible, setDatePickerVisibility] = useState(false);
   
   const [totalSeats, setTotalSeats] = useState('');
@@ -48,25 +46,29 @@ export default function CreateTransferScreen() {
 
   const isEnterprise = subscription?.plan === 'enterprise';
 
-  const fetchData = useCallback(async () => {
-    if (!profile) return;
-    try {
-      const { data: typesData, error: typesError } = await supabase.from('transfer_types').select('*').eq('is_active', true);
-      if (typesError) throw typesError;
-      setTransferTypes(typesData || []);
+  // ✅ Corrigindo a implementação de useFocusEffect
+  useFocusEffect(
+    useCallback(() => {
+      async function fetchData() {
+        if (!profile) return;
+        try {
+          const { data: typesData, error: typesError } = await supabase.from('transfer_types').select('*').eq('is_active', true);
+          if (typesError) throw typesError;
+          setTransferTypes(typesData || []);
+    
+          const { data: vehiclesData, error: vehiclesError } = await supabase.from('vehicles').select('*').eq('owner_id', profile.id);
+          if (vehiclesError) throw vehiclesError;
+          setVehicles(vehiclesData || []);
+        } catch (error) {
+          console.error('Error fetching data:', error);
+          Alert.alert('Erro', 'Não foi possível carregar os dados necessários.');
+        }
+      }
 
-      const { data: vehiclesData, error: vehiclesError } = await supabase.from('vehicles').select('*').eq('owner_id', profile.id);
-      if (vehiclesError) throw vehiclesError;
-      setVehicles(vehiclesData || []);
-    } catch (error) {
-      console.error('Error fetching data:', error);
-      Alert.alert('Erro', 'Não foi possível carregar os dados necessários.');
-    }
-  }, [profile]);
+      fetchData();
+    }, [profile])
+  );
 
-  useFocusEffect(fetchData);
-
-  // ✅ NOVAS FUNÇÕES PARA O NOVO PICKER
   const showDatePicker = () => {
     setDatePickerVisibility(true);
   };
@@ -182,7 +184,7 @@ export default function CreateTransferScreen() {
         </View>
       </Modal>
       
-      {/* ✅ NOVO COMPONENTE DE DATA/HORA MODAL */}
+      {/* Componente de Data/Hora Modal */}
       <DateTimePickerModal
         isVisible={isDatePickerVisible}
         mode="datetime"

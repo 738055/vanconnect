@@ -10,11 +10,9 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
-// Importe o hook customizado do seu contexto
 import { useNotifications } from '../../../contexts/NotificationContext';
 import { Bell, Inbox } from 'lucide-react-native';
 
-// Mantenha o tipo de notificação como estava, mas ele será fornecido pelo contexto
 type Notification = {
   id: string;
   created_at: string;
@@ -28,29 +26,18 @@ type Notification = {
 
 export default function NotificationsScreen() {
   const router = useRouter();
-  // ✅ Agora use o hook do contexto para obter os dados e funções
   const { notifications, isLoading, refetch, markAsRead } = useNotifications();
 
-  // A função para buscar e os estados locais não são mais necessários
-  // pois o contexto já gerencia isso para você.
-  // const [notifications, setNotifications] = useState<Notification[]>([]);
-  // const [loading, setLoading] = useState(true);
-  // const fetchNotifications = useCallback(...);
-  // useFocusEffect(...);
-
   const handleNotificationPress = async (notification: Notification) => {
-    // 1. Marca a notificação como lida usando a função do contexto
     if (!notification.read_at) {
       await markAsRead(notification.id);
     }
     
-    // 2. Navega para o transfer, se houver um ID nos dados da notificação
     if (notification.data?.transfer_id) {
       router.push(`/(app)/transfer-details/${notification.data.transfer_id}`);
     }
   };
 
-  // Função para formatar o tempo decorrido - Mantida como está
   const timeSince = (date: string) => {
     const seconds = Math.floor((new Date().getTime() - new Date(date).getTime()) / 1000);
     let interval = seconds / 31536000;
@@ -71,13 +58,11 @@ export default function NotificationsScreen() {
       <View style={styles.header}>
         <Text style={styles.title}>Notificações</Text>
       </View>
-      {/* ✅ Use isLoading do contexto */}
       {isLoading ? (
         <View style={styles.centered}><ActivityIndicator size="large" color="#2563eb" /></View>
       ) : (
         <ScrollView
           style={styles.scrollView}
-          // ✅ Use isLoading e refetch do contexto
           refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} />}
         >
           {notifications.length > 0 ? (
@@ -111,7 +96,6 @@ export default function NotificationsScreen() {
   );
 }
 
-// ✅ Mantenha os estilos exatamente como estão
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8fafc' },
   header: { padding: 24, backgroundColor: '#ffffff', borderBottomWidth: 1, borderBottomColor: '#e5e7eb' },

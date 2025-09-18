@@ -12,8 +12,8 @@ import {
   Image,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { supabase } from '../../lib/supabase';
-import { useAuth } from '../../contexts/AuthContext';
+import { supabase } from '../../../lib/supabase';
+import { useAuth } from '../../../contexts/AuthContext';
 import { User, Phone, Plane, Hotel, DollarSign, Clipboard } from 'lucide-react-native';
 
 type PassengerInput = {
@@ -74,6 +74,15 @@ export default function AddPassengersScreen() {
     for (const passenger of passengers) {
       if (!passenger.full_name.trim()) {
         Alert.alert('Erro de Validação', 'O nome de todos os passageiros é obrigatório.');
+        return;
+      }
+      // ✅ Nova validação para os campos de telefone e hotel
+      if (!passenger.phone.trim()) {
+        Alert.alert('Erro de Validação', 'O telefone de todos os passageiros é obrigatório.');
+        return;
+      }
+      if (!passenger.hotel.trim()) {
+        Alert.alert('Erro de Validação', 'O hotel de todos os passageiros é obrigatório.');
         return;
       }
     }
@@ -137,9 +146,9 @@ export default function AddPassengersScreen() {
               <TextInput style={styles.input} value={passenger.full_name} onChangeText={(v) => handleInputChange(index, 'full_name', v)} placeholder="Nome completo do passageiro" />
               <Text style={styles.label}>Documento (RG ou CPF)</Text>
               <TextInput style={styles.input} value={passenger.document_number} onChangeText={(v) => handleInputChange(index, 'document_number', v)} placeholder="Número do documento" />
-              <Text style={styles.label}>Telefone do Cliente</Text>
+              <Text style={styles.label}>Telefone do Cliente *</Text>
               <View style={styles.inputWithIcon}><Phone size={20} color="#64748b" /><TextInput style={styles.inputText} value={passenger.phone} onChangeText={(v) => handleInputChange(index, 'phone', v)} placeholder="(XX) XXXXX-XXXX" keyboardType="phone-pad" /></View>
-              <Text style={styles.label}>Hotel</Text>
+              <Text style={styles.label}>Hotel *</Text>
               <View style={styles.inputWithIcon}><Hotel size={20} color="#64748b" /><TextInput style={styles.inputText} value={passenger.hotel} onChangeText={(v) => handleInputChange(index, 'hotel', v)} placeholder="Nome do hotel" /></View>
               <Text style={styles.label}>Número do Voo</Text>
               <View style={styles.inputWithIcon}><Plane size={20} color="#64748b" /><TextInput style={styles.inputText} value={passenger.flight_number} onChangeText={(v) => handleInputChange(index, 'flight_number', v)} placeholder="Ex: LA3540" /></View>

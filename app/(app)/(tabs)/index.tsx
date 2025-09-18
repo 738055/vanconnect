@@ -19,7 +19,7 @@ type TransferWithDetails = {
     origin_description: string;
     destination_description: string;
   };
-  profiles: { // ✅ CORREÇÃO: Removidas as colunas de avaliação
+  profiles: {
     full_name: string;
     phone: string | null;
   };
@@ -39,7 +39,6 @@ export default function HomeScreen() {
   const [isObsModalVisible, setObsModalVisible] = useState(false);
   const [selectedTransfer, setSelectedTransfer] = useState<TransferWithDetails | null>(null);
 
-  // ✅ CORREÇÃO: A busca na tabela 'profiles' agora pede apenas colunas que existem.
   const commonQuery = `
     id,
     creator_id,
@@ -248,7 +247,6 @@ export default function HomeScreen() {
   );
 }
 
-// ... ESTILOS ...
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#f8fafc' },
     header: { paddingHorizontal: 24, paddingTop: 32, paddingBottom: 16, backgroundColor: '#ffffff' },
