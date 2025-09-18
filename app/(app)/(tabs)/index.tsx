@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, ActivityIndicator, RefreshControl, Modal, Alert } from 'react-native';
+import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, ActivityIndicator, RefreshControl, Modal, Alert, Image } from 'react-native';
 import { useAuth } from '../../../contexts/AuthContext';
 import { supabase } from '../../../lib/supabase';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -22,6 +22,7 @@ type TransferWithDetails = {
   profiles: {
     full_name: string;
     phone: string | null;
+    avatar_url: string | null; // ✅ NOVO: Adiciona a URL do avatar
   };
   vehicles: {
     model: string;
@@ -51,7 +52,8 @@ export default function HomeScreen() {
     transfer_types ( * ),
     profiles:creator_id (
       full_name,
-      phone
+      phone,
+      avatar_url
     ),
     vehicles ( * )
   `;
@@ -143,9 +145,18 @@ export default function HomeScreen() {
     return transfer.total_seats - transfer.occupied_seats;
   };
 
-  const renderTransferCard = (transfer: TransferWithDetails) => (
-    <View key={transfer.id} style={styles.transferCard}>
-      <TouchableOpacity onPress={() => router.push({ pathname: '/(app)/transfer-details/[id]', params: { id: transfer.id } })}>
+  const renderTransferCard = (transfer: TransferWithDetails) => {
+    const isFull = getAvailableSeats(transfer) <= 0;
+    const hasAvatar = transfer.profiles?.avatar_url;
+    const initials = transfer.profiles?.full_name?.charAt(0) || 'U';
+
+    return (
+      <TouchableOpacity 
+        key={transfer.id} 
+        style={[styles.transferCard, isFull && styles.disabledCard]}
+        onPress={() => router.push({ pathname: '/(app)/transfer-details/[id]', params: { id: transfer.id } })}
+        disabled={isFull}
+      >
         <View style={styles.transferHeader}>
           <Text style={styles.transferTitle}>{transfer.transfer_types.title}</Text>
           <View style={styles.priceContainer}>
@@ -170,22 +181,28 @@ export default function HomeScreen() {
         </View>
         <View style={styles.transferDetails}>
           <View style={styles.detailItem}><Clock size={16} color="#64748b" /><Text style={styles.detailText}>{formatDate(transfer.departure_time)}</Text></View>
-          <View style={styles.detailItem}><Users size={16} color="#64748b" /><Text style={styles.detailText}>{getAvailableSeats(transfer)} vagas disponíveis</Text></View>
+          <View style={styles.detailItem}><Users size={16} color="#64748b" /><Text style={styles.detailText}>{isFull ? 'Lotado' : `${getAvailableSeats(transfer)} vagas disponíveis`}</Text></View>
+        </View>
+        <View style={styles.transferFooter}>
+          <View style={styles.creatorInfo}>
+            {hasAvatar ? (
+              <Image source={{ uri: transfer.profiles.avatar_url }} style={styles.creatorAvatar} />
+            ) : (
+              <View style={styles.avatarPlaceholder}>
+                <Text style={styles.avatarText}>{initials}</Text>
+              </View>
+            )}
+            <Text style={styles.creatorName}>{transfer.profiles?.full_name || 'Usuário'}</Text>
+            {transfer.observations && (
+                <TouchableOpacity onPress={() => openObsModal(transfer)} style={styles.obsButton}>
+                    <MessageSquare size={16} color="#64748b" />
+                </TouchableOpacity>
+            )}
+          </View>
         </View>
       </TouchableOpacity>
-      <View style={styles.transferFooter}>
-        <View style={styles.creatorInfo}>
-          <View style={styles.avatarPlaceholder}><Text style={styles.avatarText}>{(transfer.profiles?.full_name?.charAt(0) || 'U')}</Text></View>
-          <Text style={styles.creatorName}>{transfer.profiles?.full_name || 'Usuário'}</Text>
-          {transfer.observations && (
-              <TouchableOpacity onPress={() => openObsModal(transfer)} style={styles.obsButton}>
-                  <MessageSquare size={16} color="#64748b" />
-              </TouchableOpacity>
-          )}
-        </View>
-      </View>
-    </View>
-  );
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -262,6 +279,7 @@ const styles = StyleSheet.create({
     emptyTitle: { fontSize: 18, fontWeight: '600', color: '#64748b', marginTop: 16, marginBottom: 8 },
     emptyDescription: { fontSize: 14, color: '#94a3b8', textAlign: 'center', lineHeight: 20 },
     transferCard: { backgroundColor: '#ffffff', marginBottom: 16, borderRadius: 16, padding: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 3 },
+    disabledCard: { opacity: 0.6 },
     transferHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 },
     transferTitle: { fontSize: 18, fontWeight: '600', color: '#1e293b', flex: 1, marginRight: 16 },
     priceContainer: { alignItems: 'flex-end' },
@@ -281,6 +299,7 @@ const styles = StyleSheet.create({
     transferFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: '#f1f5f9', paddingTop: 16 },
     creatorInfo: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     avatarPlaceholder: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#2563eb', justifyContent: 'center', alignItems: 'center' },
+    creatorAvatar: { width: 32, height: 32, borderRadius: 16 }, // ✅ NOVO: Estilo para a imagem do avatar
     avatarText: { fontSize: 14, fontWeight: '600', color: '#ffffff' },
     creatorName: { fontSize: 14, fontWeight: '500', color: '#1e293b' },
     obsButton: { padding: 6, borderRadius: 8, backgroundColor: '#e2e8f0', marginLeft: 8 },

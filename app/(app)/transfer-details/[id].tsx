@@ -11,10 +11,11 @@ import {
   RefreshControl,
   Modal,
   TextInput,
+  Image
 } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { supabase } from '../../../lib/supabase';
-import { Car, MapPin, Clock, Users, MessageSquare, DollarSign, X, CheckCircle, Phone, Building } from 'lucide-react-native';
+import { Car, MapPin, Clock, Users, MessageSquare, DollarSign, X, CheckCircle, Phone, Building, Star, User } from 'lucide-react-native';
 import { useAuth } from '../../../contexts/AuthContext';
 
 type TransferDetails = {
@@ -34,11 +35,12 @@ type TransferDetails = {
   profiles: {
     full_name: string;
     phone: string | null;
+    avatar_url: string | null;
   };
   vehicles: {
     model: string;
     plate: string;
-  }
+  };
 };
 
 type PassengerDetail = {
@@ -52,294 +54,350 @@ export default function TransferDetailsScreen() {
   const router = useRouter();
   const { profile } = useAuth();
   const [transfer, setTransfer] = useState<TransferDetails | null>(null);
-  const [passengers, setPassengers] = useState<PassengerDetail[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isJoinModalVisible, setJoinModalVisible] = useState(false);
+  const [seatsRequested, setSeatsRequested] = useState('');
+  const [isCreator, setIsCreator] = useState(false);
+  const [passengers, setPassengers] = useState<PassengerDetail[]>([]);
+  const [passengersLoading, setPassengersLoading] = useState(false);
   
-  const [isBookingModalVisible, setBookingModalVisible] = useState(false);
-  const [seatsToBook, setSeatsToBook] = useState('1');
-  const [currentTime, setCurrentTime] = useState(new Date());
+  const [creatorAverageRating, setCreatorAverageRating] = useState(0);
+  const [creatorTotalReviews, setCreatorTotalReviews] = useState(0);
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(new Date());
-    }, 60000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const fetchTransferDetails = async () => {
-    if (!transferId) { setLoading(false); return; }
+  const fetchTransferDetails = useCallback(async () => {
+    if (!transferId) return;
     setLoading(true);
     try {
       const { data, error } = await supabase
         .from('transfers')
-        .select(`*, creator_id, transfer_types(*), profiles:creator_id(*), vehicles(*)`)
+        .select(`
+          *,
+          transfer_types(title, origin_description, destination_description),
+          profiles:creator_id(
+            full_name,
+            phone,
+            avatar_url
+          ),
+          vehicles(model, plate)
+        `)
         .eq('id', transferId)
         .single();
       if (error) throw error;
-      setTransfer(data as any);
+      setTransfer(data as TransferDetails);
 
-      // ✅ Usando uma consulta mais robusta para obter os passageiros, juntando as tabelas.
-      if (profile?.id === data.creator_id) {
-        const { data: passengersData, error: passengersError } = await supabase
-          .from('transfer_participations')
-          .select(`passengers(full_name, phone, hotel)`)
-          .eq('transfer_id', transferId);
-        if (passengersError) throw passengersError;
-        
-        // Aplana a estrutura de dados para o estado de passageiros
-        const flatPassengers = passengersData.flatMap(p => p.passengers);
-        setPassengers(flatPassengers as any);
-      } else {
-        setPassengers([]);
-      }
+      const { data: reviewsData, error: reviewsError } = await supabase
+        .from('reviews')
+        .select('rating')
+        .eq('reviewee_id', data.creator_id);
+
+      if (reviewsError) throw reviewsError;
+      
+      const totalReviews = reviewsData.length;
+      const averageRating = totalReviews > 0 
+        ? reviewsData.reduce((sum, review) => sum + review.rating, 0) / totalReviews
+        : 0;
+
+      setCreatorAverageRating(averageRating);
+      setCreatorTotalReviews(totalReviews);
+
     } catch (error: any) {
-      console.error('Error fetching transfer details:', error);
-      Alert.alert('Erro', `Não foi possível carregar os detalhes do transfer: ${error.message}`);
-      setTransfer(null);
+      console.error("Erro ao buscar detalhes do transfer:", error);
+      Alert.alert("Erro", "Não foi possível carregar os detalhes do transfer.");
     } finally {
       setLoading(false);
     }
+  }, [transferId]);
+
+  const fetchPassengers = useCallback(async () => {
+    if (!transferId) return;
+    setPassengersLoading(true);
+    try {
+      // ✅ A consulta foi ajustada para usar apenas o status 'pending'
+      const { data: participations, error: participationsError } = await supabase
+        .from('transfer_participations')
+        .select('id')
+        .eq('transfer_id', transferId)
+        .eq('status', 'pending');
+
+      if (participationsError) throw participationsError;
+      
+      const participationIds = participations.map(p => p.id);
+      
+      const { data: passengersData, error: passengersError } = await supabase
+        .from('passengers')
+        .select('full_name, phone, hotel')
+        .in('participation_id', participationIds);
+
+      if (passengersError) throw passengersError;
+      
+      setPassengers(passengersData as PassengerDetail[]);
+    } catch (error: any) {
+      console.error("Erro ao buscar passageiros:", error);
+      Alert.alert("Erro", "Não foi possível carregar a lista de passageiros.");
+    } finally {
+      setPassengersLoading(false);
+    }
+  }, [transferId]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchTransferDetails();
+    }, [fetchTransferDetails])
+  );
+
+  useEffect(() => {
+    if (transfer?.creator_id && profile?.id) {
+      setIsCreator(transfer.creator_id === profile.id);
+    }
+  }, [transfer, profile]);
+
+  useEffect(() => {
+    if (isCreator) {
+      fetchPassengers();
+    }
+  }, [isCreator, fetchPassengers]);
+
+  const formatPrice = (price: number) => `R$ ${price.toFixed(2)}`;
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
   };
 
-  useFocusEffect(useCallback(() => {
-    fetchTransferDetails();
-  }, [transferId, profile?.id]));
+  const availableSeats = transfer ? transfer.total_seats - transfer.occupied_seats : 0;
+  const isFull = availableSeats <= 0;
 
-  const getAvailableSeats = () => (transfer?.total_seats || 0) - (transfer?.occupied_seats || 0);
-
-  const handleBookNow = () => {
-    const requestedSeats = parseInt(seatsToBook);
-    const availableSeats = getAvailableSeats();
-    if (isNaN(requestedSeats) || requestedSeats <= 0) {
-      Alert.alert('Erro', 'Por favor, insira um número de vagas válido.');
+  const handleJoinTransfer = () => {
+    const seats = parseInt(seatsRequested, 10);
+    if (isNaN(seats) || seats <= 0) {
+      Alert.alert("Erro", "Por favor, insira um número de vagas válido.");
       return;
     }
-    if (requestedSeats > availableSeats) {
-      Alert.alert('Atenção', `Este transfer só tem ${availableSeats} vagas disponíveis.`);
+    if (seats > availableSeats) {
+      Alert.alert("Aviso", `Não há vagas suficientes. Vagas disponíveis: ${availableSeats}`);
       return;
     }
-
+    const totalPrice = seats * (transfer?.price_per_seat || 0);
+    setJoinModalVisible(false);
     router.push({
-      pathname: '/(app)/booking/add-passengers', 
-      params: {
-        transferId: transfer?.id,
-        seatsRequested: requestedSeats,
-        totalPrice: (requestedSeats * (transfer?.price_per_seat || 0)).toFixed(2),
-      }
+      pathname: `/(app)/transfer-details/add-passengers`,
+      params: { transferId: transfer?.id, seatsRequested: seats, totalPrice: totalPrice.toFixed(2) }
     });
-    setBookingModalVisible(false);
   };
 
-  const handleFinalizeTransfer = async () => {
-    Alert.alert(
-      "Confirmar Finalização",
-      "Você tem certeza que deseja marcar este transfer como concluído? Esta ação não pode ser desfeita.",
-      [
-        { text: "Cancelar", style: "cancel" },
-        {
-          text: "Sim, Finalizar",
-          onPress: async () => {
-            setLoading(true);
-            try {
-              const { error } = await supabase
-                .from('transfers')
-                .update({ status: 'completed' })
-                .eq('id', transferId);
-              if (error) throw error;
-              Alert.alert('Sucesso!', 'O transfer foi marcado como concluído.');
-              router.back();
-            } catch (error: any) {
-              Alert.alert('Erro', `Não foi possível finalizar o transfer: ${error.message}`);
-            } finally {
-              setLoading(false);
-            }
-          },
-          style: "destructive"
-        }
-      ]
+  const renderStars = (rating: number, totalReviews: number) => {
+    const fullStars = Math.floor(rating);
+    const hasHalfStar = rating % 1 !== 0;
+    const emptyStars = 5 - fullStars - (hasHalfStar ? 1 : 0);
+    const starColor = "#ffc107";
+    const emptyStarColor = "#e4e5e9";
+
+    const stars = [];
+    for (let i = 0; i < fullStars; i++) {
+      stars.push(<Star key={`full-${i}`} size={16} color={starColor} fill={starColor} />);
+    }
+    if (hasHalfStar) {
+      stars.push(<Star key="half" size={16} color={starColor} fill={starColor} />);
+    }
+    for (let i = 0; i < emptyStars; i++) {
+      stars.push(<Star key={`empty-${i}`} size={16} color={emptyStarColor} />);
+    }
+    return (
+      <View style={styles.starsContainer}>
+        {stars}
+        <Text style={styles.ratingText}>{rating.toFixed(1)}</Text>
+        <Text style={styles.reviewCountText}>({totalReviews} avaliações)</Text>
+      </View>
     );
   };
-  
+
   if (loading) {
-    return (<View style={styles.centered}><ActivityIndicator size="large" color="#2563eb" /></View>);
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#2563eb" />
+      </View>
+    );
   }
 
   if (!transfer) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.centered}>
-            <Text style={styles.emptyText}>Transfer não encontrado.</Text>
-            <TouchableOpacity onPress={() => router.back()} style={{marginTop: 16}}>
-                <Text style={{color: '#2563eb'}}>Voltar</Text>
-            </TouchableOpacity>
-        </View>
-      </SafeAreaView>
+      <View style={styles.loadingContainer}>
+        <Text style={styles.errorText}>Transfer não encontrado.</Text>
+      </View>
     );
   }
-
-  const departureTime = new Date(transfer.departure_time + 'Z');
-  const canFinalize = new Date() > departureTime;
-  const isCreator = profile?.id === transfer.creator_id;
+  
+  const hasCreatorAvatar = transfer.profiles?.avatar_url;
+  const creatorInitials = transfer.profiles?.full_name?.charAt(0) || '?';
 
   return (
     <SafeAreaView style={styles.container}>
-      <Modal animationType="slide" transparent={true} visible={isBookingModalVisible} onRequestClose={() => setBookingModalVisible(false)}>
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={isJoinModalVisible}
+        onRequestClose={() => setJoinModalVisible(false)}
+      >
         <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Reservar Vagas</Text>
-              <TouchableOpacity onPress={() => setBookingModalVisible(false)}><X size={24} color="#64748b" /></TouchableOpacity>
+              <Text style={styles.modalTitle}>Entrar no Transfer</Text>
+              <TouchableOpacity onPress={() => setJoinModalVisible(false)}>
+                <X size={24} color="#64748b" />
+              </TouchableOpacity>
             </View>
-            <Text style={styles.modalInfo}>Vagas disponíveis: {getAvailableSeats()}</Text>
-            <Text style={styles.modalInfo}>Preço por vaga: R$ {transfer.price_per_seat?.toFixed(2) || '0.00'}</Text>
-            <Text style={styles.label}>Quantas vagas você deseja?</Text>
-            <TextInput style={styles.modalInput} keyboardType="numeric" value={seatsToBook} onChangeText={setSeatsToBook} placeholder="1" />
-            <TouchableOpacity style={styles.modalButton} onPress={handleBookNow}>
-              <Text style={styles.modalButtonText}>Adicionar Passageiros</Text>
+            <Text style={styles.modalInfo}>Quantas vagas você precisa?</Text>
+            <Text style={styles.label}>Vagas disponíveis: {availableSeats}</Text>
+            <TextInput
+              style={styles.modalInput}
+              keyboardType="numeric"
+              placeholder="Número de vagas"
+              value={seatsRequested}
+              onChangeText={setSeatsRequested}
+            />
+            <TouchableOpacity style={styles.modalButton} onPress={handleJoinTransfer}>
+              <Text style={styles.modalButtonText}>Continuar</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      <ScrollView refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchTransferDetails} />}>
-        <View style={styles.header}>
-            <Text style={styles.transferTitle}>{transfer.transfer_types.title}</Text>
-            <Text style={styles.transferRoute}><MapPin size={16} color="#64748b" /> {transfer.transfer_types.origin_description} → {transfer.transfer_types.destination_description}</Text>
-        </View>
-        <View style={styles.content}>
-            <View style={styles.profileCard}>
-                <View style={styles.avatarPlaceholder}><Text style={styles.avatarText}>{transfer.profiles?.full_name?.charAt(0) || 'U'}</Text></View>
-                <View style={styles.profileDetails}>
-                    <Text style={styles.profileName}>{transfer.profiles?.full_name || 'Usuário'}</Text>
-                    {transfer.vehicles && (<View style={styles.vehicleInfo}><Car size={16} color="#475569" /><Text style={styles.vehicleText}>{transfer.vehicles.model} ({transfer.vehicles.plate})</Text></View>)}
-                </View>
-            </View>
-            <View style={styles.detailsCard}>
-                <View style={styles.detailItem}><Clock size={20} color="#2563eb" /><View><Text style={styles.detailLabel}>Partida</Text><Text style={styles.detailText}>{new Date(transfer.departure_time).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</Text></View></View>
-                <View style={styles.separator} />
-                <View style={styles.detailItem}><Users size={20} color="#2563eb" /><View><Text style={styles.detailLabel}>Vagas</Text><Text style={styles.detailText}>{getAvailableSeats()} de {transfer.total_seats} disponíveis</Text></View></View>
-                <View style={styles.separator} />
-                <View style={styles.detailItem}><DollarSign size={20} color="#2563eb" /><View><Text style={styles.detailLabel}>Preço</Text><Text style={styles.detailText}>R$ {transfer.price_per_seat?.toFixed(2) || '0.00'} por vaga</Text></View></View>
-            </View>
-
-            {/* Renderizar seções extras apenas para o criador */}
-            {isCreator && (
-              <>
-                <View style={styles.passengersCard}>
-                  <Text style={styles.passengersTitle}>Passageiros Reservados</Text>
-                  {passengers.length > 0 ? (
-                    passengers.map((passenger, index) => (
-                      <View key={index} style={styles.passengerItem}>
-                        <Text style={styles.passengerName}>{passenger.full_name}</Text>
-                        <View style={styles.passengerInfo}>
-                            <Building size={16} color="#475569" />
-                            <Text style={styles.passengerText}>{passenger.hotel || 'Não informado'}</Text>
-                        </View>
-                        <View style={styles.passengerInfo}>
-                            <Phone size={16} color="#475569" />
-                            <Text style={styles.passengerText}>{passenger.phone || 'Não informado'}</Text>
-                        </View>
-                      </View>
-                    ))
-                  ) : (
-                    <Text style={styles.noPassengersText}>Nenhum passageiro reservou vagas ainda.</Text>
-                  )}
-                </View>
-                
-                {transfer.observations && (
-                  <View style={styles.obsCard}>
-                    <View style={styles.obsHeader}>
-                      <MessageSquare size={20} color="#2563eb" />
-                      <Text style={styles.obsTitle}>Observações</Text>
-                    </View>
-                    <Text style={styles.obsText}>{transfer.observations}</Text>
-                  </View>
-                )}
-              </>
+      <ScrollView
+        style={styles.scrollView}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchTransferDetails} />}
+      >
+        <View style={styles.transferCard}>
+          <Text style={styles.transferTitle}>{transfer.transfer_types.title}</Text>
+          
+          <TouchableOpacity 
+            style={styles.creatorInfoContainer}
+            onPress={() => router.push({ pathname: `/(app)/user-profile/${transfer.creator_id}` })}
+          >
+            {hasCreatorAvatar ? (
+              <Image source={{ uri: transfer.profiles.avatar_url }} style={styles.creatorAvatar} />
+            ) : (
+              <View style={styles.avatarPlaceholder}>
+                <Text style={styles.avatarText}>{creatorInitials}</Text>
+              </View>
             )}
+            <View style={styles.creatorDetails}>
+              <Text style={styles.creatorName}>{transfer.profiles?.full_name || 'Usuário'}</Text>
+              {renderStars(creatorAverageRating, creatorTotalReviews)}
+            </View>
+          </TouchableOpacity>
+
+          <View style={styles.section}>
+            <View style={styles.detailItem}><MapPin size={20} color="#64748b" /><Text style={styles.detailLabel}>Origem:</Text><Text style={styles.detailText}>{transfer.transfer_types.origin_description}</Text></View>
+            <View style={styles.detailItem}><MapPin size={20} color="#64748b" /><Text style={styles.detailLabel}>Destino:</Text><Text style={styles.detailText}>{transfer.transfer_types.destination_description}</Text></View>
+            <View style={styles.detailItem}><Clock size={20} color="#64748b" /><Text style={styles.detailLabel}>Horário:</Text><Text style={styles.detailText}>{formatDate(transfer.departure_time)}</Text></View>
+            <View style={styles.detailItem}><Car size={20} color="#64748b" /><Text style={styles.detailLabel}>Veículo:</Text><Text style={styles.detailText}>{transfer.vehicles.model} ({transfer.vehicles.plate})</Text></View>
+            <View style={styles.detailItem}><Users size={20} color="#64748b" /><Text style={styles.detailLabel}>Vagas:</Text><Text style={styles.detailText}>{isFull ? 'Lotado' : `${availableSeats} disponíveis de ${transfer.total_seats}`}</Text></View>
+            <View style={styles.detailItem}><DollarSign size={20} color="#64748b" /><Text style={styles.detailLabel}>Preço por Vaga:</Text><Text style={styles.detailText}>{formatPrice(transfer.price_per_seat)}</Text></View>
+          </View>
+
+          {transfer.observations && (
+            <View style={styles.section}>
+              <View style={styles.detailItem}><MessageSquare size={20} color="#64748b" /><Text style={styles.detailLabel}>Observações:</Text></View>
+              <Text style={styles.observationsText}>{transfer.observations}</Text>
+            </View>
+          )}
+
+          {isCreator && (
+            <View style={styles.passengersSection}>
+              <Text style={styles.passengersTitle}>Passageiros Confirmados</Text>
+              {passengersLoading ? (
+                <ActivityIndicator size="small" color="#64748b" style={{ marginTop: 16 }} />
+              ) : passengers.length > 0 ? (
+                passengers.map((p, index) => (
+                  <View key={index} style={styles.passengerCard}>
+                    <View style={styles.detailItem}>
+                      <User size={16} color="#64748b" />
+                      <Text style={styles.passengerName}>{p.full_name}</Text>
+                    </View>
+                    {p.phone && (
+                      <View style={styles.detailItem}>
+                        <Phone size={16} color="#64748b" />
+                        <Text style={styles.passengerContact}>{p.phone}</Text>
+                      </View>
+                    )}
+                    {p.hotel && (
+                      <View style={styles.detailItem}>
+                        <Building size={16} color="#64748b" />
+                        <Text style={styles.passengerContact}>{p.hotel}</Text>
+                      </View>
+                    )}
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.noPassengersText}>Nenhum passageiro confirmado ainda.</Text>
+              )}
+            </View>
+          )}
+
         </View>
       </ScrollView>
 
-      <View style={styles.footer}>
-        {isCreator ? (
-          <TouchableOpacity
-            style={[styles.finalizeButton, (!canFinalize || transfer.status === 'completed') && styles.disabledButton]}
-            onPress={handleFinalizeTransfer}
-            disabled={!canFinalize || transfer.status === 'completed'}
-          >
-            <CheckCircle size={20} color="#ffffff" />
-            <Text style={styles.participateButtonText}>
-              {transfer.status === 'completed' ? 'Transfer Finalizado' : 'Finalizar Transfer'}
-            </Text>
+      {!isCreator && !isFull && (
+        <View style={styles.bottomBar}>
+          <Text style={styles.bottomBarPrice}>{formatPrice(transfer.price_per_seat)}</Text>
+          <Text style={styles.bottomBarPriceLabel}>por vaga</Text>
+          <TouchableOpacity style={styles.participateButton} onPress={() => setJoinModalVisible(true)}>
+            <Text style={styles.participateButtonText}>Entrar no Transfer</Text>
           </TouchableOpacity>
-        ) : (
-          <TouchableOpacity
-            style={[styles.participateButton, transfer.status !== 'available' && styles.disabledButton]}
-            onPress={() => setBookingModalVisible(true)}
-            disabled={transfer.status !== 'available'}
-          >
-            <Text style={styles.participateButtonText}>{transfer.status === 'full' ? 'Lotado' : 'Reservar Vagas'}</Text>
+        </View>
+      )}
+
+      {isCreator && transfer.status === 'available' && (
+        <View style={styles.bottomBar}>
+          <TouchableOpacity style={styles.creatorActionButton}>
+            <Text style={styles.creatorActionButtonText}>Gerenciar Transfer</Text>
           </TouchableOpacity>
-        )}
-      </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8fafc' },
-  scrollView: { flex: 1 },
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
-  emptyText: { fontSize: 16, color: '#64748b' },
-  header: { backgroundColor: '#ffffff', padding: 24, borderBottomLeftRadius: 16, borderBottomRightRadius: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 3, },
-  transferTitle: { fontSize: 24, fontWeight: 'bold', color: '#1e293b', marginBottom: 8 },
-  transferRoute: { fontSize: 16, color: '#64748b' },
-  content: { padding: 24, gap: 16 },
-  profileCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#ffffff', padding: 20, borderRadius: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 3, },
-  avatarPlaceholder: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#2563eb', justifyContent: 'center', alignItems: 'center', marginRight: 16 },
-  avatarText: { fontSize: 28, fontWeight: 'bold', color: '#ffffff' },
-  profileDetails: { flex: 1 },
-  profileName: { fontSize: 20, fontWeight: '600', color: '#1e293b' },
-  vehicleInfo: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 8, marginTop: 8 },
-  vehicleText: { fontSize: 16, color: '#475569' },
-  detailsCard: { backgroundColor: '#ffffff', padding: 20, borderRadius: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 3, },
-  detailItem: { flexDirection: 'row', alignItems: 'center', gap: 16 },
-  detailLabel: { fontSize: 12, color: '#94a3b8' },
-  detailText: { fontSize: 16, fontWeight: '500', color: '#1e293b' },
-  separator: { height: 1, backgroundColor: '#e5e7eb', marginVertical: 8 },
-  obsCard: { backgroundColor: '#ffffff', padding: 20, borderRadius: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 3, },
-  obsHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
-  obsTitle: { fontSize: 16, fontWeight: '600', color: '#1e293b' },
-  obsText: { fontSize: 14, color: '#475569', lineHeight: 20 },
-  passengersCard: { backgroundColor: '#ffffff', padding: 20, borderRadius: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 3, },
-  passengersTitle: { fontSize: 18, fontWeight: 'bold', color: '#1e293b', marginBottom: 12 },
-  passengerItem: { flexDirection: 'column', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-  passengerName: { fontSize: 16, fontWeight: '500', color: '#1e293b', marginBottom: 4 },
-  passengerInfo: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
-  passengerText: { fontSize: 14, color: '#475569' },
-  noPassengersText: { fontSize: 14, color: '#64748b' },
-  footer: { padding: 24, backgroundColor: '#ffffff', borderTopWidth: 1, borderTopColor: '#e5e7eb' },
-  participateButton: { backgroundColor: '#2563eb', paddingVertical: 16, borderRadius: 12, alignItems: 'center', },
-  participateButtonText: { color: '#ffffff', fontSize: 16, fontWeight: '600', },
-  modalContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0, 0, 0, 0.5)', },
-  modalContent: { width: '90%', backgroundColor: '#ffffff', padding: 24, borderRadius: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 5, },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, },
-  modalTitle: { fontSize: 20, fontWeight: 'bold', color: '#1e293b', },
-  modalInfo: { fontSize: 16, color: '#64748b', marginBottom: 8, },
-  label: { fontSize: 16, fontWeight: '500', color: '#374151', marginTop: 12, marginBottom: 8, },
-  modalInput: { backgroundColor: '#f8fafc', padding: 14, borderRadius: 8, borderWidth: 1, borderColor: '#e5e7eb', fontSize: 16, },
-  modalButton: { backgroundColor: '#10b981', paddingVertical: 16, borderRadius: 12, alignItems: 'center', marginTop: 24, },
-  modalButtonText: { color: '#ffffff', fontSize: 16, fontWeight: '600', },
-  finalizeButton: {
-    backgroundColor: '#10b981',
-    paddingVertical: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  disabledButton: {
-    backgroundColor: '#9ca3af',
-  },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  scrollView: { flex: 1, padding: 24 },
+  transferCard: { backgroundColor: '#ffffff', borderRadius: 16, padding: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 3 },
+  transferTitle: { fontSize: 24, fontWeight: 'bold', color: '#1e293b', marginBottom: 20 },
+  creatorInfoContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 20, padding: 12, backgroundColor: '#f8fafc', borderRadius: 12 },
+  creatorAvatar: { width: 50, height: 50, borderRadius: 25 },
+  avatarPlaceholder: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#2563eb', justifyContent: 'center', alignItems: 'center' },
+  avatarText: { fontSize: 20, fontWeight: 'bold', color: '#ffffff' },
+  creatorDetails: { marginLeft: 16 },
+  creatorName: { fontSize: 18, fontWeight: '600', color: '#1e293b' },
+  starsContainer: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
+  ratingText: { fontSize: 14, fontWeight: '600', color: '#475569', marginLeft: 4 },
+  reviewCountText: { fontSize: 14, color: '#94a3b8', marginLeft: 4 },
+  section: { marginBottom: 20 },
+  detailItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 12 },
+  detailLabel: { fontSize: 16, fontWeight: '600', color: '#334155', minWidth: 80 },
+  detailText: { fontSize: 16, color: '#64748b', flex: 1 },
+  observationsText: { fontSize: 16, color: '#475569', marginTop: 8, lineHeight: 24 },
+  bottomBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 16, paddingHorizontal: 24, backgroundColor: '#ffffff', borderTopWidth: 1, borderTopColor: '#e5e7eb' },
+  bottomBarPrice: { fontSize: 20, fontWeight: 'bold', color: '#10b981' },
+  bottomBarPriceLabel: { fontSize: 12, color: '#64748b' },
+  participateButton: { backgroundColor: '#2563eb', paddingVertical: 16, borderRadius: 12, alignItems: 'center', flex: 1, marginLeft: 16 },
+  participateButtonText: { color: '#ffffff', fontSize: 16, fontWeight: '600' },
+  creatorActionButton: { backgroundColor: '#f1f5f9', paddingVertical: 16, borderRadius: 12, alignItems: 'center', flex: 1 },
+  creatorActionButtonText: { color: '#475569', fontSize: 16, fontWeight: '600' },
+  modalContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0, 0, 0, 0.5)' },
+  modalContent: { width: '90%', backgroundColor: '#ffffff', padding: 24, borderRadius: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 5 },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+  modalTitle: { fontSize: 20, fontWeight: 'bold', color: '#1e293b' },
+  modalInfo: { fontSize: 16, color: '#64748b', marginBottom: 8 },
+  label: { fontSize: 16, fontWeight: '500', color: '#374151', marginTop: 12, marginBottom: 8 },
+  modalInput: { backgroundColor: '#f8fafc', padding: 14, borderRadius: 8, borderWidth: 1, borderColor: '#e5e7eb', fontSize: 16 },
+  modalButton: { backgroundColor: '#10b981', paddingVertical: 14, borderRadius: 8, alignItems: 'center' },
+  modalButtonText: { color: '#ffffff', fontSize: 16, fontWeight: '600' },
+  passengersSection: { marginTop: 20 },
+  passengersTitle: { fontSize: 18, fontWeight: '600', color: '#1e293b', marginBottom: 12 },
+  passengerCard: { backgroundColor: '#f8fafc', padding: 16, borderRadius: 12, marginBottom: 10, borderWidth: 1, borderColor: '#e2e8f0' },
+  passengerName: { fontSize: 16, fontWeight: '500', color: '#1e293b', marginLeft: 8 },
+  passengerContact: { fontSize: 14, color: '#475569', marginLeft: 8 },
+  noPassengersText: { fontSize: 14, color: '#94a3b8', textAlign: 'center', marginTop: 16 },
 });
