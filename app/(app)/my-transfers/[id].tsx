@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -12,48 +12,39 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { supabase } from '../../../lib/supabase';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Calendar, Users, Check, X, User as UserIcon, ShieldCheck, DollarSign, Flag } from 'lucide-react-native';
+import { Calendar, Users, Check, X, User as UserIcon, Flag } from 'lucide-react-native';
+import { useAuth } from '../../../contexts/AuthContext';
 
-type Passenger = {
-  id: number;
-  full_name: string;
-  document_number: string | null;
-};
-
-type Participant = {
-  id: number;
-  seats_requested: number;
-  status: string;
-  total_price: number;
-  profiles: {
-    full_name: string;
-    avatar_url: string | null;
-  } | null;
-  passengers: Passenger[];
-};
-
-type TransferDetails = {
-  id: number;
-  departure_time: string;
-  total_seats: number;
-  occupied_seats: number;
-  status: string;
-  transfer_types: {
-    title: string;
-  };
-  transfer_participations: Participant[];
-};
+// Tipos de dados (sem alterações)
+type Passenger = { id: number; full_name: string; document_number: string | null; };
+type Participant = { id: number; seats_requested: number; status: string; total_price: number; profiles: { full_name: string; avatar_url: string | null; } | null; passengers: Passenger[]; };
+type TransferDetails = { id: number; departure_time: string; total_seats: number; occupied_seats: number; status: string; transfer_types: { title: string; }; transfer_participations: Participant[]; creator_id: string };
 
 export default function ManageTransferScreen() {
   const { id } = useLocalSearchParams();
   const queryClient = useQueryClient();
   const router = useRouter();
+  const { profile } = useAuth();
 
+  const [currentTime, setCurrentTime] = useState(new Date());
+
+  // Atualiza a hora atual a cada minuto para reavaliar o estado do botão
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Busca os detalhes do transfer
   const fetchTransferDetails = async (): Promise<TransferDetails> => {
+    // ✅ NOVO: Verifica se o ID é válido e se o perfil existe
+    if (!id || !profile?.id) {
+      throw new Error("ID do transfer ou perfil do usuário não encontrado.");
+    }
+    
     const { data, error } = await supabase
       .from('transfers')
       .select(`
-        id, departure_time, total_seats, occupied_seats, status,
+        id, departure_time, total_seats, occupied_seats, status, creator_id,
         transfer_types ( title ),
         transfer_participations (
           id, seats_requested, status, total_price,
@@ -62,23 +53,26 @@ export default function ManageTransferScreen() {
         )
       `)
       .eq('id', id)
+      // ✅ NOVO: Filtra para garantir que apenas o proprietário do transfer possa ver os detalhes
+      .eq('creator_id', profile.id)
       .single();
-
     if (error) throw new Error(error.message);
     return data as TransferDetails;
   };
 
   const { data: transfer, isLoading, isError, refetch } = useQuery({
-    queryKey: ['transfer-details', id],
+    queryKey: ['manage-transfer-details', id],
     queryFn: fetchTransferDetails,
+    enabled: !!id && !!profile?.id, // ✅ NOVO: Desativa a busca se não houver ID ou perfil
   });
 
+  // Mutação para aprovar/rejeitar participações
   const updateParticipationStatus = async ({ participationId, newStatus, seatsRequested }: { participationId: number, newStatus: string, seatsRequested: number }) => {
     const { error } = await supabase.rpc('update_participation_status', {
-        participation_id_input: participationId,
-        new_status_input: newStatus,
-        transfer_id_input: Number(id),
-        seats_input: seatsRequested
+        p_participation_id: participationId,
+        p_new_status: newStatus,
+        p_transfer_id: Number(id),
+        p_seats_to_adjust: seatsRequested
     });
     if (error) throw new Error(error.message);
   };
@@ -86,75 +80,41 @@ export default function ManageTransferScreen() {
   const participationMutation = useMutation({
     mutationFn: updateParticipationStatus,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transfer-details', id] });
+      queryClient.invalidateQueries({ queryKey: ['manage-transfer-details', id] });
       Alert.alert('Sucesso', 'O status da solicitação foi atualizado.');
     },
     onError: (error) => {
       Alert.alert('Erro', `Não foi possível atualizar o status: ${error.message}`);
     }
   });
-  
+
+  // Mutação para finalizar o transfer
   const finalizeTransferMutation = useMutation({
     mutationFn: async (transferId: number) => {
-      const { error } = await supabase.rpc('finalize_transfer', {
-        transfer_id_input: transferId
-      });
+      const { error } = await supabase.rpc('finalize_transfer', { p_transfer_id: transferId });
       if (error) throw new Error(error.message);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['transfer-details', id] });
+      queryClient.invalidateQueries({ queryKey: ['my-transfers'] });
       Alert.alert('Sucesso', 'O transfer foi marcado como finalizado.');
+      router.back();
     },
     onError: (error) => {
       Alert.alert('Erro', `Não foi possível finalizar o transfer: ${error.message}`);
     }
   });
 
-  const handleApprove = (participation: Participant) => {
-    participationMutation.mutate({
-      participationId: participation.id,
-      newStatus: 'approved',
-      seatsRequested: participation.seats_requested
-    });
-  };
-
-  const handleReject = (participation: Participant) => {
-    participationMutation.mutate({
-      participationId: participation.id,
-      newStatus: 'rejected',
-      seatsRequested: participation.seats_requested
-    });
-  };
-
-  const handleConfirmPayment = (participation: Participant) => {
-    Alert.alert(
-      'Confirmar Pagamento?',
-      `Você confirma o recebimento de R$${participation.total_price?.toFixed(2)} de ${participation.profiles?.full_name}? Esta ação não pode ser desfeita.`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        { 
-          text: 'Confirmar', 
-          onPress: () => participationMutation.mutate({
-            participationId: participation.id,
-            newStatus: 'paid',
-            seatsRequested: 0
-          })
-        },
-      ]
-    );
-  };
+  const handleApprove = (p: Participant) => participationMutation.mutate({ participationId: p.id, newStatus: 'approved', seatsRequested: p.seats_requested });
+  const handleReject = (p: Participant) => participationMutation.mutate({ participationId: p.id, newStatus: 'rejected', seatsRequested: p.seats_requested });
 
   const handleFinalizeTransfer = () => {
     if (!transfer) return;
     Alert.alert(
       'Finalizar Transfer?',
-      'Esta ação marcará a viagem como concluída para todos os participantes. Deseja continuar?',
+      'Esta ação marcará a viagem como concluída. Deseja continuar?',
       [
         { text: 'Cancelar', style: 'cancel' },
-        { 
-          text: 'Sim, Finalizar', 
-          onPress: () => finalizeTransferMutation.mutate(transfer.id)
-        },
+        { text: 'Sim, Finalizar', onPress: () => finalizeTransferMutation.mutate(transfer.id) },
       ]
     );
   };
@@ -165,14 +125,17 @@ export default function ManageTransferScreen() {
   if (isError || !transfer) {
     return (
         <View style={styles.centered}>
-            <Text style={styles.errorText}>Não foi possível carregar os detalhes do transfer.</Text>
+            <Text style={styles.errorText}>Não foi possível carregar os detalhes.</Text>
             <TouchableOpacity onPress={() => refetch()}><Text>Tentar Novamente</Text></TouchableOpacity>
         </View>
     );
   }
 
   const pendingParticipants = transfer.transfer_participations.filter(p => p.status === 'pending');
-  const confirmedParticipants = transfer.transfer_participations.filter(p => p.status === 'approved' || p.status === 'paid');
+  const confirmedParticipants = transfer.transfer_participations.filter(p => p.status === 'approved');
+
+  const departureTime = new Date(transfer.departure_time + 'Z');
+  const canFinalize = currentTime > departureTime;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -185,21 +148,23 @@ export default function ManageTransferScreen() {
           </View>
         </View>
 
-        {(transfer.status === 'available' || transfer.status === 'full' || confirmedParticipants.some(p => p.status === 'paid')) && (
+        {(transfer.status === 'available' || transfer.status === 'full') && (
           <View style={styles.finalizeSection}>
             <TouchableOpacity 
-              style={[styles.finalizeButton, finalizeTransferMutation.isPending && styles.disabledButton]} 
+              style={[styles.finalizeButton, !canFinalize && styles.disabledButton]} 
               onPress={handleFinalizeTransfer}
-              disabled={finalizeTransferMutation.isPending}
+              disabled={!canFinalize || finalizeTransferMutation.isPending}
             >
               <Flag size={18} color="#ffffff" />
               <Text style={styles.finalizeButtonText}>
                 {finalizeTransferMutation.isPending ? 'Finalizando...' : 'Finalizar Transfer'}
               </Text>
             </TouchableOpacity>
+            {!canFinalize && <Text style={styles.finalizeHint}>O botão será liberado no horário da partida.</Text>}
           </View>
         )}
-
+        
+        {/* Seção de Solicitações Pendentes */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Solicitações Pendentes ({pendingParticipants.length})</Text>
           {pendingParticipants.length > 0 ? (
@@ -223,15 +188,16 @@ export default function ManageTransferScreen() {
               </View>
             ))
           ) : (
-            <Text style={styles.emptyText}>Nenhuma solicitação pendente no momento.</Text>
+            <Text style={styles.emptyText}>Nenhuma solicitação pendente.</Text>
           )}
         </View>
 
+        {/* Seção de Participantes Confirmados */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Participantes Confirmados ({confirmedParticipants.length})</Text>
           {confirmedParticipants.length > 0 ? (
             confirmedParticipants.map(p => (
-              <View key={p.id} style={[styles.participantCard, p.status === 'paid' ? styles.paidCard : styles.confirmedCard]}>
+              <View key={p.id} style={styles.confirmedCard}>
                 <View style={styles.participantHeader}>
                     <View style={styles.participantInfo}>
                         <View style={styles.avatarPlaceholder}><UserIcon size={24} color="#64748b" /></View>
@@ -240,40 +206,22 @@ export default function ManageTransferScreen() {
                             <Text style={styles.participantSeats}>{p.seats_requested} vaga{p.seats_requested > 1 ? 's' : ''} confirmada{p.seats_requested > 1 ? 's' : ''}</Text>
                         </View>
                     </View>
-                    <Text style={[styles.statusTextConfirmed, p.status === 'paid' && {color: '#2563eb'}]}>
-                      {p.status === 'paid' ? 'PAGO' : 'APROVADO'}
-                    </Text>
                 </View>
-                
                 {p.passengers && p.passengers.length > 0 && (
                   <View style={styles.passengerList}>
-                    <Text style={styles.passengerListTitle}>Passageiros Informados:</Text>
+                    <Text style={styles.passengerListTitle}>Passageiros:</Text>
                     {p.passengers.map(passenger => (
                       <View key={passenger.id} style={styles.passengerItem}>
                         <UserIcon size={16} color="#475569" />
-                        <View>
-                          <Text style={styles.passengerName}>{passenger.full_name}</Text>
-                          {passenger.document_number && <Text style={styles.passengerDoc}>Doc: {passenger.document_number}</Text>}
-                        </View>
+                        <View><Text style={styles.passengerName}>{passenger.full_name}</Text></View>
                       </View>
                     ))}
                   </View>
                 )}
-
-                {p.status === 'approved' && (
-                  <TouchableOpacity 
-                    style={[styles.confirmPaymentButton, participationMutation.isPending && styles.disabledButton]} 
-                    onPress={() => handleConfirmPayment(p)}
-                    disabled={participationMutation.isPending}
-                  >
-                    <DollarSign size={16} color="#ffffff" />
-                    <Text style={styles.confirmPaymentButtonText}>Confirmar Pagamento</Text>
-                  </TouchableOpacity>
-                )}
               </View>
             ))
           ) : (
-            <Text style={styles.emptyText}>Nenhum participante confirmado ainda.</Text>
+            <Text style={styles.emptyText}>Nenhum participante confirmado.</Text>
           )}
         </View>
       </ScrollView>
@@ -281,6 +229,7 @@ export default function ManageTransferScreen() {
   );
 }
 
+// Estilos
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8fafc' },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
@@ -291,31 +240,15 @@ const styles = StyleSheet.create({
   details: { flexDirection: 'row', gap: 24 },
   detailItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   detailText: { fontSize: 14, color: '#475569' },
-  finalizeSection: {
-    paddingHorizontal: 24,
-    paddingBottom: 0,
-    paddingTop: 24,
-  },
-  finalizeButton: {
-    backgroundColor: '#4f46e5',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    borderRadius: 12,
-    gap: 10,
-  },
-  finalizeButtonText: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  section: { padding: 24 },
+  finalizeSection: { padding: 24, alignItems: 'center' },
+  finalizeButton: { backgroundColor: '#10b981', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 14, borderRadius: 12, gap: 10, width: '100%' },
+  finalizeButtonText: { color: '#ffffff', fontSize: 16, fontWeight: '600' },
+  finalizeHint: { fontSize: 12, color: '#64748b', marginTop: 8 },
+  disabledButton: { backgroundColor: '#9ca3af' },
+  section: { padding: 24, paddingTop: 0 },
   sectionTitle: { fontSize: 20, fontWeight: 'bold', color: '#1e293b', marginBottom: 16 },
-  participantCard: { backgroundColor: '#ffffff', padding: 16, borderRadius: 12, marginBottom: 12, borderWidth: 1, borderColor: '#e5e7eb' },
-  confirmedCard: { backgroundColor: '#f0fdf4', borderColor: '#bbf7d0' },
-  paidCard: { backgroundColor: '#eef2ff', borderColor: '#c7d2fe' },
-  participantHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  participantCard: { backgroundColor: '#ffffff', padding: 16, borderRadius: 12, marginBottom: 12, borderWidth: 1, borderColor: '#e5e7eb', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  confirmedCard: { backgroundColor: '#ffffff', padding: 16, borderRadius: 12, marginBottom: 12, borderWidth: 1, borderColor: '#e5e7eb' },
   participantInfo: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   avatarPlaceholder: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#f1f5f9', justifyContent: 'center', alignItems: 'center' },
   participantName: { fontSize: 16, fontWeight: '600', color: '#1e293b' },
@@ -325,22 +258,9 @@ const styles = StyleSheet.create({
   rejectButton: { backgroundColor: '#fee2e2' },
   approveButton: { backgroundColor: '#dcfce7' },
   emptyText: { fontSize: 14, color: '#64748b', textAlign: 'center' },
-  statusTextConfirmed: { fontSize: 12, fontWeight: 'bold', color: '#15803d' },
-  passengerList: { marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#e5e7eb' },
+  participantHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  passengerList: { marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#f1f5f9' },
   passengerListTitle: { fontSize: 14, fontWeight: '600', color: '#334155', marginBottom: 12 },
   passengerItem: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
   passengerName: { fontSize: 14, color: '#334155' },
-  passengerDoc: { fontSize: 12, color: '#64748b' },
-  confirmPaymentButton: {
-    backgroundColor: '#10b981',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-    borderRadius: 8,
-    gap: 8,
-    marginTop: 16,
-  },
-  confirmPaymentButtonText: { color: '#ffffff', fontSize: 14, fontWeight: '600' },
-  disabledButton: { opacity: 0.6 },
 });

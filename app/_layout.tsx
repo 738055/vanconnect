@@ -1,96 +1,71 @@
 import React, { useEffect } from 'react';
-import { ActivityIndicator, View } from 'react-native';
-import { SplashScreen, Stack, useRouter, useSegments } from 'expo-router';
+import { Slot, useRouter, useSegments } from 'expo-router';
 import { AuthProvider, useAuth } from '../contexts/AuthContext';
-import Toast from 'react-native-toast-message';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { NotificationProvider } from '../contexts/NotificationContext'; // ✅ IMPORTAÇÃO DO NOVO CONTEXTO DE NOTIFICAÇÕES
+import { NotificationProvider } from '../contexts/NotificationContext';
+import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import Toast from 'react-native-toast-message';
 
 const queryClient = new QueryClient();
 
-SplashScreen.preventAutoHideAsync();
+function RootLayoutNav() {
+  const { user, profile, loading } = useAuth();
+  const segments = useSegments();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (loading) return;
+
+    const inAuthGroup = segments[0] === '(auth)';
+
+    if (!user && !inAuthGroup) {
+      router.replace('/(auth)/welcome');
+    } 
+    else if (user && profile) { 
+      if (profile.status === 'incomplete' && segments[1] !== 'complete-profile') {
+        router.replace('/(auth)/complete-profile');
+      } else if (profile.status === 'pending' && segments[1] !== 'pending') {
+        router.replace('/(auth)/pending');
+      } else if (profile.status === 'rejected' && segments[1] !== 'rejected') {
+        router.replace('/(auth)/rejected');
+      } else if (profile.status === 'approved') {
+        if (!profile.stripe_onboarding_complete && segments[1] !== 'onboarding') {
+          router.replace('/(app)/onboarding/connect-stripe');
+        } else if (profile.stripe_onboarding_complete && segments[0] !== '(app)') {
+          router.replace('/(app)/(tabs)');
+        }
+      }
+    }
+  }, [user, profile, loading, segments]);
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" />
+      </View>
+    );
+  }
+
+  return <Slot />;
+}
 
 export default function RootLayout() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <NotificationProvider> {/* ✅ NOVO: Adicione o NotificationProvider aqui */}
-          <ProtectedLayout />
+        <NotificationProvider>
+          <RootLayoutNav />
+          <Toast />
         </NotificationProvider>
       </AuthProvider>
-      <Toast />
     </QueryClientProvider>
   );
 }
 
-function ProtectedLayout() {
-  const { isAuthenticated, profile, loading } = useAuth();
-  const segments = useSegments();
-  const router = useRouter();
-
-  useEffect(() => {
-    if (!loading) {
-      SplashScreen.hideAsync();
+const styles = StyleSheet.create({
+    loadingContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
     }
-
-    const inAuthGroup = segments[0] === '(auth)';
-    const inAppGroup = segments[0] === '(app)';
-
-    if (loading) return;
-
-    if (!isAuthenticated) {
-      if (!inAuthGroup) {
-        router.replace('/(auth)/welcome');
-      }
-    } else if (isAuthenticated && profile) {
-      const currentRoute = segments.join('/');
-
-      switch (profile.status) {
-        case 'onboarding':
-          if (currentRoute !== '(auth)/complete-profile') {
-            router.replace('/(auth)/complete-profile');
-          }
-          break;
-        case 'pending':
-          if (currentRoute !== '(auth)/pending') {
-            router.replace('/(auth)/pending');
-          }
-          break;
-        case 'rejected':
-          if (currentRoute !== '(auth)/rejected') {
-            router.replace('/(auth)/rejected');
-          }
-          break;
-        case 'approved':
-          if (!inAppGroup) {
-            router.replace('/(app)/(tabs)');
-          }
-          break;
-        default:
-          if (currentRoute !== '(auth)/login') {
-            router.replace('/(auth)/login');
-          }
-      }
-    } else if (isAuthenticated && !profile) {
-        if (segments[1] !== 'complete-profile') {
-            router.replace('/(auth)/complete-profile');
-        }
-    }
-  }, [isAuthenticated, profile, loading, segments, router]);
-
-  if (loading) {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" color="#1e293b" />
-      </View>
-    );
-  }
-
-  return (
-    <Stack
-      screenOptions={{
-        headerShown: false,
-      }}
-    />
-  );
-}
+});

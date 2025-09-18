@@ -46,7 +46,6 @@ export default function MyTransfersScreen() {
     }
   }, [profile]);
 
-  // ✅ CORREÇÃO APLICADA AQUI
   useFocusEffect(
     useCallback(() => {
       fetchMyTransfers();
@@ -73,6 +72,10 @@ export default function MyTransfersScreen() {
     });
   };
 
+  // Separa os transfers em duas listas
+  const upcomingTransfers = myTransfers.filter(t => new Date(t.departure_time) > new Date());
+  const toFinalizeTransfers = myTransfers.filter(t => new Date(t.departure_time) <= new Date() && t.status !== 'completed');
+
   if (loading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f8fafc' }}>
@@ -87,35 +90,82 @@ export default function MyTransfersScreen() {
         style={styles.scrollView}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchMyTransfers} />}
       >
-        {myTransfers.length > 0 ? (
-          myTransfers.map((transfer) => (
-            <TouchableOpacity
-              key={transfer.id}
-              style={styles.transferCard}
-              onPress={() => router.push(`/(app)/my-transfers/${transfer.id}`)}
-            >
-              <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle} numberOfLines={2}>{transfer.transfer_types.title}</Text>
-                <View style={[styles.statusBadge, { backgroundColor: getStatusColor(transfer.status) }]}>
-                  <Text style={styles.statusText}>{getStatusLabel(transfer.status)}</Text>
+        {/* Seção 1: Transfers para Finalizar */}
+        {toFinalizeTransfers.length > 0 && (
+          <View style={styles.sectionContainer}>
+            <Text style={styles.sectionTitle}>Para Finalizar</Text>
+            {toFinalizeTransfers.map((transfer) => (
+              <TouchableOpacity
+                key={transfer.id}
+                style={styles.transferCard}
+                onPress={() => router.push({
+                  pathname: `/(app)/my-transfers/[id]`,
+                  params: { id: transfer.id }
+                })}
+              >
+                <View style={styles.cardHeader}>
+                  <Text style={styles.cardTitle} numberOfLines={2}>{transfer.transfer_types.title}</Text>
+                  <View style={[styles.statusBadge, { backgroundColor: getStatusColor(transfer.status) }]}>
+                    <Text style={styles.statusText}>{getStatusLabel(transfer.status)}</Text>
+                  </View>
                 </View>
-              </View>
-              <Text style={styles.cardRoute}>
-                {transfer.transfer_types.origin_description} → {transfer.transfer_types.destination_description}
-              </Text>
-              <View style={styles.cardFooter}>
-                <View style={styles.footerItem}>
-                  <Calendar size={16} color="#64748b" />
-                  <Text style={styles.footerText}>{formatDate(transfer.departure_time)}</Text>
+                <Text style={styles.cardRoute}>
+                  {transfer.transfer_types.origin_description} → {transfer.transfer_types.destination_description}
+                </Text>
+                <View style={styles.cardFooter}>
+                  <View style={styles.footerItem}>
+                    <Calendar size={16} color="#64748b" />
+                    <Text style={styles.footerText}>{formatDate(transfer.departure_time)}</Text>
+                  </View>
+                  <View style={styles.footerItem}>
+                    <Users size={16} color="#64748b" />
+                    <Text style={styles.footerText}>{transfer.occupied_seats}/{transfer.total_seats} vagas</Text>
+                  </View>
                 </View>
-                <View style={styles.footerItem}>
-                  <Users size={16} color="#64748b" />
-                  <Text style={styles.footerText}>{transfer.occupied_seats}/{transfer.total_seats} vagas</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+        
+        {/* Seção 2: Próximas Viagens */}
+        {upcomingTransfers.length > 0 && (
+          <View style={styles.sectionContainer}>
+            <Text style={styles.sectionTitle}>Próximas Viagens</Text>
+            {upcomingTransfers.map((transfer) => (
+              <TouchableOpacity
+                key={transfer.id}
+                style={styles.transferCard}
+                onPress={() => router.push({
+                  pathname: `/(app)/my-transfers/[id]`,
+                  params: { id: transfer.id }
+                })}
+              >
+                <View style={styles.cardHeader}>
+                  <Text style={styles.cardTitle} numberOfLines={2}>{transfer.transfer_types.title}</Text>
+                  <View style={[styles.statusBadge, { backgroundColor: getStatusColor(transfer.status) }]}>
+                    <Text style={styles.statusText}>{getStatusLabel(transfer.status)}</Text>
+                  </View>
                 </View>
-              </View>
-            </TouchableOpacity>
-          ))
-        ) : (
+                <Text style={styles.cardRoute}>
+                  {transfer.transfer_types.origin_description} → {transfer.transfer_types.destination_description}
+                </Text>
+                <View style={styles.cardFooter}>
+                  <View style={styles.footerItem}>
+                    <Calendar size={16} color="#64748b" />
+                    <Text style={styles.footerText}>{formatDate(transfer.departure_time)}</Text>
+                  </View>
+                  <View style={styles.footerItem}>
+                    <Users size={16} color="#64748b" />
+                    <Text style={styles.footerText}>{transfer.occupied_seats}/{transfer.total_seats} vagas</Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
+        {/* Estado vazio para o caso de não haver transfers */}
+        {myTransfers.length === 0 && (
           <View style={styles.emptyState}>
             <Truck size={48} color="#cbd5e1" />
             <Text style={styles.emptyTitle}>Nenhum transfer criado</Text>
@@ -130,6 +180,8 @@ export default function MyTransfersScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8fafc' },
   scrollView: { flex: 1, padding: 24 },
+  sectionContainer: { marginBottom: 24 },
+  sectionTitle: { fontSize: 20, fontWeight: 'bold', color: '#1e293b', marginBottom: 16 },
   transferCard: {
     backgroundColor: '#ffffff',
     padding: 20,

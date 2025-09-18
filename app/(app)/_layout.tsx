@@ -1,78 +1,71 @@
 import React, { useEffect } from 'react';
-import { Stack, useRouter } from 'expo-router';
-import { useAuth } from '../../contexts/AuthContext';
+import { Slot, useRouter, useSegments } from 'expo-router';
+import { AuthProvider, useAuth } from '../../contexts/AuthContext';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { NotificationProvider } from '../../contexts/NotificationContext';
 import { View, ActivityIndicator } from 'react-native';
+import Toast from 'react-native-toast-message';
 
-export default function AppLayout() {
-  const { user, profile, subscription, loading } = useAuth();
+const queryClient = new QueryClient();
+
+function RootLayoutNav() {
+  const { user, profile, loading } = useAuth();
+  const segments = useSegments();
   const router = useRouter();
 
   useEffect(() => {
-    // Adiciona logs para depuração
-    console.log('--- A VERIFICAR A ROTA ---');
-    console.log(`Carregamento: ${loading}, Utilizador: ${!!user}, Perfil: ${!!profile}`);
-    if (profile) {
-      console.log(`Status do Perfil: ${profile.status}, CPF/CNPJ do Perfil: ${profile.cpf_cnpj}`);
-    }
+    if (loading) return; // Aguarda o carregamento inicial do estado de autenticação
 
-    if (loading) {
-      console.log('-> DECISÃO: A aguardar, a carregar...');
-      return; // Aguarda o fim do carregamento
-    }
+    const inAuthGroup = segments[0] === '(auth)';
+    const inAppGroup = segments[0] === '(app)';
 
     if (!user) {
-      console.log("-> DECISÃO: Redirecionar para /login");
-      router.replace('/(auth)/login');
-      return;
-    }
-
-    if (user && profile) {
-      // ETAPA 1: O status é 'onboarding' ou o perfil está incompleto?
-      // Esta verificação é a mais importante e vem primeiro.
-      if (profile.status === 'onboarding' || !profile.cpf_cnpj) {
-        console.log("-> DECISÃO: Status 'onboarding' ou perfil incompleto. A redirecionar para /complete-profile");
+      // Se não há usuário e não estamos no fluxo de autenticação, redireciona para lá
+      if (!inAuthGroup) {
+        router.replace('/(auth)/welcome');
+      }
+    } else if (user) {
+      // Se há usuário, verifica o status do perfil
+      if (profile?.status === 'incomplete') {
         router.replace('/(auth)/complete-profile');
-        return;
-      }
-      
-      // ETAPA 2: O cadastro está em análise?
-      if (profile.status === 'pending') {
-        console.log("-> DECISÃO: Status 'pending'. A redirecionar para /pending");
+      } else if (profile?.status === 'pending') {
         router.replace('/(auth)/pending');
-        return;
-      }
-
-      // ETAPA 3: O cadastro foi rejeitado?
-      if (profile.status === 'rejected') {
-        console.log("-> DECISÃO: Status 'rejeitado'. A redirecionar para /rejected");
+      } else if (profile?.status === 'rejected') {
         router.replace('/(auth)/rejected');
-        return;
+      } else if (profile?.status === 'approved') {
+        // Se aprovado, verifica se conectou ao Stripe
+        if (profile.stripe_onboarding_complete === false) {
+          router.replace('/(app)/onboarding/connect-stripe');
+        } else {
+          // Se tudo estiver completo e não estivermos no grupo principal do app, redireciona para lá
+          if (!inAppGroup) {
+            router.replace('/(app)/(tabs)');
+          }
+        }
       }
-
-      // ETAPA 4: Está aprovado, mas sem um plano pago?
-      if (profile.status === 'approved' && subscription?.plan === 'free') {
-        console.log("-> DECISÃO: Aprovado, plano free. A redirecionar para /subscription");
-        router.replace('/(app)/subscription');
-        return;
-      }
-
-      console.log("-> DECISÃO: Acesso permitido à aplicação.");
     }
-  }, [user, profile, subscription, loading, router]);
+  }, [user, profile, loading, segments]);
 
   if (loading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" color="#1e293b" />
+        <ActivityIndicator size="large" />
       </View>
     );
   }
 
-  // Se todas as verificações passarem, o utilizador pode aceder à aplicação.
+  return <Slot />;
+}
+
+export default function RootLayout() {
   return (
-    <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="(tabs)" />
-      <Stack.Screen name="subscription" />
-    </Stack>
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <NotificationProvider>
+          <RootLayoutNav />
+          <Toast />
+        </NotificationProvider>
+      </AuthProvider>
+    </QueryClientProvider>
   );
 }

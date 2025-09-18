@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   Alert,
   Image,
+  ActivityIndicator,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { supabase } from '../../../lib/supabase';
@@ -18,70 +19,64 @@ export default function PixPaymentScreen() {
   const { transferId, seatsRequested, totalPrice } = useLocalSearchParams();
   const router = useRouter();
   const { profile } = useAuth();
+  const [loading, setLoading] = React.useState(false);
   
+  // Garante que o preço seja formatado corretamente
   const formattedPrice = parseFloat(totalPrice as string).toFixed(2);
-  
-  // Função que simula a cópia do código Pix (opcional)
+  const numericTransferId = Number(transferId);
+  const numericSeatsRequested = Number(seatsRequested);
+
+  // Função que simula a cópia do código Pix
   const handleCopyCode = () => {
-    // Implemente a lógica de copiar para a área de transferência aqui
     Alert.alert('Código Pix Copiado!', 'O código foi copiado para a sua área de transferência.');
   };
 
-  // Função para simular o pagamento e registrar a participação
+  /**
+   * Função que simula a confirmação de pagamento "via banco".
+   * Ela chama uma função no Supabase (RPC) que executa a lógica de forma segura:
+   * 1. Verifica se há vagas disponíveis.
+   * 2. Insere a participação com status 'approved'.
+   * 3. Atualiza o número de vagas ocupadas no transfer.
+   * Tudo isso em uma única transação no banco de dados.
+   */
   const handleConfirmPayment = async () => {
-    if (!profile || !transferId) {
+    if (!profile || !numericTransferId) {
       Alert.alert('Erro', 'Dados de usuário ou do transfer não encontrados.');
       return;
     }
+    
+    setLoading(true);
 
     try {
-      // 1. Inserir a participação na tabela transfer_participations
-      const { error: participationError } = await supabase
-        .from('transfer_participations')
-        .insert({
-          transfer_id: transferId,
-          participant_id: profile.id,
-          seats_requested: seatsRequested,
-          total_price: formattedPrice,
-          status: 'pending', // O status pode ser 'pending' até o motorista aprovar
-        });
+      const { error } = await supabase.rpc('handle_successful_payment', {
+        p_transfer_id: numericTransferId,
+        p_participant_id: profile.id,
+        p_seats_requested: numericSeatsRequested,
+        p_total_price: parseFloat(formattedPrice)
+      });
 
-      if (participationError) {
-        if (participationError.code === '23505') { // Código de erro para violação de unique constraint
-          Alert.alert('Atenção', 'Você já solicitou participação neste transfer!');
+      if (error) {
+        // Trata erros específicos retornados pela função do banco
+        if (error.message.includes('INSUFFICIENT_SEATS')) {
+            Alert.alert('Erro', 'Não há vagas suficientes disponíveis neste transfer.');
+        } else if (error.message.includes('ALREADY_PARTICIPATING')) {
+            Alert.alert('Atenção', 'Você já está participando deste transfer.');
         } else {
-          throw participationError;
+            throw new Error(error.message);
         }
+      } else {
+        // Sucesso!
+        Alert.alert(
+          'Pagamento Confirmado!', 
+          'Sua reserva (simulada) foi concluída com sucesso. Você já pode ver os detalhes em "Minhas Participações".',
+          [{ text: 'OK', onPress: () => router.push('/(app)/(tabs)/transfers') }]
+        );
       }
-
-      // 2. Atualizar o número de vagas ocupadas no transfer
-      // O Supabase tem uma função integrada que pode ser usada aqui, mas faremos manualmente para simplicidade
-      const { data: currentTransfer, error: fetchError } = await supabase
-        .from('transfers')
-        .select('occupied_seats')
-        .eq('id', transferId)
-        .single();
-      
-      if (fetchError) throw fetchError;
-
-      const newOccupiedSeats = currentTransfer.occupied_seats + parseInt(seatsRequested as string);
-      
-      const { error: updateError } = await supabase
-        .from('transfers')
-        .update({ occupied_seats: newOccupiedSeats })
-        .eq('id', transferId);
-      
-      if (updateError) throw updateError;
-      
-      // Sucesso!
-      Alert.alert('Pagamento Confirmado!', 'Sua reserva foi concluída com sucesso. Um motorista irá aprovar a sua solicitação em breve.');
-      
-      // Redirecionar para a tela inicial ou para a tela de participações
-      router.push('/(app)/(tabs)/transfers');
-
-    } catch (error) {
-      console.error('Erro ao confirmar pagamento:', error);
+    } catch (error: any) {
+      console.error('Erro ao confirmar pagamento simulado:', error);
       Alert.alert('Erro', 'Ocorreu um problema ao registrar a sua reserva. Por favor, tente novamente.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -107,15 +102,15 @@ export default function PixPaymentScreen() {
         </View>
 
         <View style={styles.pixCard}>
-          <Text style={styles.pixTitle}>Pagar com Pix</Text>
+          <Text style={styles.pixTitle}>Pagar com Pix (Simulação)</Text>
           <Image
-            source={{ uri: 'https://via.placeholder.com/200' }} // Substitua pela sua URL de QR Code Pix
+            source={{ uri: 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=simulacao' }} // QR Code genérico
             style={styles.qrCode}
           />
           <Text style={styles.qrLabel}>Escaneie o QR Code</Text>
           <Text style={styles.orText}>ou</Text>
           <Text style={styles.copyPasteCode}>
-            <Text style={styles.copyPasteText}>Código Pix (Copia e Cola)</Text>
+            <Text style={styles.copyPasteText}>chave_pix_simulada_copia_e_cola</Text>
           </Text>
           <TouchableOpacity style={styles.copyButton} onPress={handleCopyCode}>
             <Clipboard size={18} color="#2563eb" />
@@ -123,8 +118,16 @@ export default function PixPaymentScreen() {
           </TouchableOpacity>
         </View>
 
-        <TouchableOpacity style={styles.confirmButton} onPress={handleConfirmPayment}>
-          <Text style={styles.confirmButtonText}>Confirmar Pagamento</Text>
+        <TouchableOpacity 
+            style={[styles.confirmButton, loading && styles.disabledButton]} 
+            onPress={handleConfirmPayment}
+            disabled={loading}
+        >
+          {loading ? (
+            <ActivityIndicator color="#ffffff" />
+          ) : (
+            <Text style={styles.confirmButtonText}>Confirmar Pagamento</Text>
+          )}
         </TouchableOpacity>
         
       </ScrollView>
@@ -178,7 +181,7 @@ const styles = StyleSheet.create({
     width: '100%',
     textAlign: 'center',
   },
-  copyPasteText: { fontSize: 16, color: '#1e293b', fontWeight: '500' },
+  copyPasteText: { fontSize: 14, color: '#1e293b', fontWeight: '500' },
   copyButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -196,4 +199,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   confirmButtonText: { color: '#ffffff', fontSize: 18, fontWeight: 'bold' },
+  disabledButton: {
+    opacity: 0.7,
+  }
 });

@@ -76,7 +76,8 @@ export default function TabLayout() {
         />
       ) : null}
 
-      {isEnterprise ? (
+      {/* ✅ ALTERAÇÃO: Dashboard visível para Pro e Enterprise */}
+      {(isPro || isEnterprise) ? (
         <Tabs.Screen
           name="dashboard"
           options={{
@@ -98,11 +99,7 @@ export default function TabLayout() {
         }}
       />
       
-      {/*
-        O aviso acontece aqui porque o Expo Router já cria a rota "notifications"
-        automaticamente com base no arquivo `app/(app)/(tabs)/notifications/index.tsx`.
-      */}
-      <Tabs.Screen
+       <Tabs.Screen
         name="notifications"
         options={{
           title: 'Notificações',
