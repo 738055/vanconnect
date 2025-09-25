@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 // Em: app/(app)/booking/add-passengers.tsx
 
 import React, { useEffect, useState, useCallback } from 'react';
@@ -17,16 +18,22 @@ import { supabase } from '../../../lib/supabase';
 import { useAuth } from '../../../contexts/AuthContext';
 import { User, Phone, Hotel, Plane, DollarSign } from 'lucide-react-native';
 import { useStripe } from '@stripe/stripe-react-native';
+=======
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, SafeAreaView, ScrollView, TextInput, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { UserPlus, Trash2 } from 'lucide-react-native';
+import Toast from 'react-native-toast-message';
+>>>>>>> 42a118eee7627d714b56b7e1bd1b715e1b916776
 
-type PassengerInput = {
+type Passenger = {
   full_name: string;
-  document_number: string;
-  hotel: string;
-  flight_number: string;
   phone: string;
+  hotel: string;
 };
 
 export default function AddPassengersScreen() {
+<<<<<<< HEAD
   const { transferId, seatsRequested, totalPrice, creatorId } = useLocalSearchParams();
   const router = useRouter();
   const { profile } = useAuth();
@@ -91,21 +98,43 @@ export default function AddPassengersScreen() {
 
 
   const handleInputChange = (index: number, field: keyof PassengerInput, value: string) => {
+=======
+  const router = useRouter();
+  const { transferId, seatsRequested, totalPrice } = useLocalSearchParams();
+  
+  const numSeats = parseInt(seatsRequested as string);
+  
+  const [passengers, setPassengers] = useState<Passenger[]>(
+    Array(numSeats).fill({ full_name: '', phone: '', hotel: '' })
+  );
+  const [loading, setLoading] = useState(false);
+
+  const updatePassengerInfo = (index: number, field: keyof Passenger, value: string) => {
+>>>>>>> 42a118eee7627d714b56b7e1bd1b715e1b916776
     const newPassengers = [...passengers];
-    newPassengers[index][field] = value;
+    newPassengers[index] = { ...newPassengers[index], [field]: value };
     setPassengers(newPassengers);
   };
 
+<<<<<<< HEAD
   const handleConfirmAndPay = async () => {
     if (!profile) return Alert.alert("Erro", "Você precisa estar logado.");
     for (const p of passengers) {
       if (!p.full_name.trim() || !p.phone.trim() || !p.hotel.trim()) {
         return Alert.alert('Erro de Validação', 'Nome, telefone e hotel são obrigatórios para todos os passageiros.');
+=======
+  const handleProceedToPayment = () => {
+    for (const passenger of passengers) {
+      if (!passenger.full_name.trim()) {
+        Toast.show({ type: 'error', text1: 'Nome Obrigatório', text2: 'Por favor, preencha o nome de todos os passageiros.' });
+        return;
+>>>>>>> 42a118eee7627d714b56b7e1bd1b715e1b916776
       }
     }
     
     setLoading(true);
 
+<<<<<<< HEAD
     try {
         const { data: participationData, error: participationError } = await supabase
             .from('transfer_participations')
@@ -147,29 +176,63 @@ export default function AddPassengersScreen() {
     }
   };
   
+=======
+    router.push({
+      pathname: '/(app)/booking/pix-payment',
+      params: {
+        transferId,
+        seatsRequested,
+        totalPrice,
+        passengers: JSON.stringify(passengers),
+      },
+    });
+    setLoading(false);
+  };
+
+>>>>>>> 42a118eee7627d714b56b7e1bd1b715e1b916776
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView style={styles.scrollView}>
+      <ScrollView showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
           <Text style={styles.title}>Dados dos Passageiros</Text>
+<<<<<<< HEAD
           <Text style={styles.subtitle}>Preencha os dados para as {numericSeatsRequested} vagas.</Text>
+=======
+          <Text style={styles.subtitle}>
+            Preencha as informações para as {seatsRequested} vagas reservadas.
+          </Text>
+>>>>>>> 42a118eee7627d714b56b7e1bd1b715e1b916776
         </View>
 
-        <View style={styles.form}>
-          {passengers.map((passenger, index) => (
-            <View key={index} style={styles.passengerCard}>
-              <Text style={styles.passengerTitle}>Passageiro {index + 1}</Text>
+        {passengers.map((_, index) => (
+          <View key={index} style={styles.passengerCard}>
+            <Text style={styles.passengerTitle}>Passageiro {index + 1}</Text>
+            <View style={styles.inputContainer}>
               <Text style={styles.label}>Nome Completo *</Text>
-              <TextInput style={styles.input} value={passenger.full_name} onChangeText={(v) => handleInputChange(index, 'full_name', v)} placeholder="Nome completo do passageiro" />
-              <Text style={styles.label}>Documento (RG ou CPF)</Text>
-              <TextInput style={styles.input} value={passenger.document_number} onChangeText={(v) => handleInputChange(index, 'document_number', v)} placeholder="Número do documento" />
-              <Text style={styles.label}>Telefone do Cliente *</Text>
-              <View style={styles.inputWithIcon}><Phone size={20} color="#64748b" /><TextInput style={styles.inputText} value={passenger.phone} onChangeText={(v) => handleInputChange(index, 'phone', v)} placeholder="(XX) XXXXX-XXXX" keyboardType="phone-pad" /></View>
-              <Text style={styles.label}>Hotel *</Text>
-              <View style={styles.inputWithIcon}><Hotel size={20} color="#64748b" /><TextInput style={styles.inputText} value={passenger.hotel} onChangeText={(v) => handleInputChange(index, 'hotel', v)} placeholder="Nome do hotel" /></View>
-              <Text style={styles.label}>Número do Voo</Text>
-              <View style={styles.inputWithIcon}><Plane size={20} color="#64748b" /><TextInput style={styles.inputText} value={passenger.flight_number} onChangeText={(v) => handleInputChange(index, 'flight_number', v)} placeholder="Ex: LA3540" /></View>
+              <TextInput
+                style={styles.input}
+                placeholder="Nome do passageiro"
+                onChangeText={(text) => updatePassengerInfo(index, 'full_name', text)}
+              />
             </View>
+            <View style={styles.inputContainer}>
+              <Text style={styles.label}>Telefone (Opcional)</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="(11) 99999-9999"
+                keyboardType="phone-pad"
+                onChangeText={(text) => updatePassengerInfo(index, 'phone', text)}
+              />
+            </View>
+            <View style={styles.inputContainer}>
+              <Text style={styles.label}>Hotel / Voo (Opcional)</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Nome do hotel ou número do voo"
+                onChangeText={(text) => updatePassengerInfo(index, 'hotel', text)}
+              />
+            </View>
+<<<<<<< HEAD
           ))}
         </View>
       </ScrollView>
@@ -185,6 +248,18 @@ export default function AddPassengersScreen() {
             disabled={loading || !paymentSheetInitialized}
         >
           {loading ? <ActivityIndicator color="#fff" /> : <><DollarSign size={20} color="#ffffff" /><Text style={styles.saveButtonText}>Pagar e Confirmar</Text></>}
+=======
+          </View>
+        ))}
+      </ScrollView>
+      <View style={styles.bottomBar}>
+        <View>
+            <Text style={styles.totalPrice}>R$ {totalPrice}</Text>
+            <Text style={styles.priceLabel}>Total para {seatsRequested} vaga(s)</Text>
+        </View>
+        <TouchableOpacity style={styles.confirmButton} onPress={handleProceedToPayment} disabled={loading}>
+          {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.confirmButtonText}>Ir para Pagamento</Text>}
+>>>>>>> 42a118eee7627d714b56b7e1bd1b715e1b916776
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -193,6 +268,7 @@ export default function AddPassengersScreen() {
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#f8fafc' },
+<<<<<<< HEAD
     scrollView: { flex: 1 },
     header: { padding: 24, backgroundColor: '#ffffff' },
     title: { fontSize: 24, fontWeight: 'bold', color: '#1e293b' },
@@ -212,3 +288,19 @@ const styles = StyleSheet.create({
     disabledButton: { backgroundColor: '#9ca3af' },
     saveButtonText: { color: '#ffffff', fontSize: 16, fontWeight: '600' },
 });
+=======
+    header: { paddingHorizontal: 24, paddingVertical: 32 },
+    title: { fontSize: 32, fontWeight: 'bold', color: '#1e293b', marginBottom: 8 },
+    subtitle: { fontSize: 16, color: '#64748b' },
+    passengerCard: { backgroundColor: '#ffffff', marginHorizontal: 24, marginBottom: 16, padding: 20, borderRadius: 16 },
+    passengerTitle: { fontSize: 18, fontWeight: '600', color: '#1e293b', marginBottom: 12 },
+    inputContainer: { marginBottom: 16 },
+    label: { fontSize: 14, fontWeight: '500', color: '#374151', marginBottom: 8 },
+    input: { backgroundColor: '#f8fafc', padding: 14, borderRadius: 8, borderWidth: 1, borderColor: '#e5e7eb', fontSize: 16 },
+    bottomBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 24, backgroundColor: '#ffffff', borderTopWidth: 1, borderTopColor: '#e5e7eb' },
+    totalPrice: { fontSize: 20, fontWeight: 'bold', color: '#1e293b' },
+    priceLabel: { fontSize: 14, color: '#64748b' },
+    confirmButton: { backgroundColor: '#10b981', paddingVertical: 14, paddingHorizontal: 24, borderRadius: 12, alignItems: 'center' },
+    confirmButtonText: { color: '#ffffff', fontSize: 16, fontWeight: '600' },
+});
+>>>>>>> 42a118eee7627d714b56b7e1bd1b715e1b916776
