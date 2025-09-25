@@ -1,3 +1,5 @@
+// Em: app/(app)/transfer-details/[id].tsx
+
 import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
@@ -112,14 +114,19 @@ export default function TransferDetailsScreen() {
     if (!transferId) return;
     setPassengersLoading(true);
     try {
-      // ✅ A consulta foi ajustada para usar apenas o status 'pending'
       const { data: participations, error: participationsError } = await supabase
         .from('transfer_participations')
         .select('id')
         .eq('transfer_id', transferId)
-        .eq('status', 'pending');
+        .eq('status', 'paid'); // ✅ Apenas passageiros com pagamento confirmado
 
       if (participationsError) throw participationsError;
+      
+      if (participations.length === 0) {
+        setPassengers([]);
+        setPassengersLoading(false);
+        return;
+      }
       
       const participationIds = participations.map(p => p.id);
       
@@ -179,28 +186,27 @@ export default function TransferDetailsScreen() {
     }
     const totalPrice = seats * (transfer?.price_per_seat || 0);
     setJoinModalVisible(false);
+
+    // ✅ AÇÃO CRÍTICA: Passar o creator_id para o próximo ecrã
     router.push({
-      pathname: `/(app)/transfer-details/add-passengers`,
-      params: { transferId: transfer?.id, seatsRequested: seats, totalPrice: totalPrice.toFixed(2) }
+      pathname: `/(app)/booking/add-passengers`,
+      params: { 
+        transferId: transfer?.id, 
+        seatsRequested: seats, 
+        totalPrice: totalPrice.toFixed(2),
+        creatorId: transfer?.creator_id 
+      }
     });
   };
-
+  
   const renderStars = (rating: number, totalReviews: number) => {
     const fullStars = Math.floor(rating);
-    const hasHalfStar = rating % 1 !== 0;
-    const emptyStars = 5 - fullStars - (hasHalfStar ? 1 : 0);
     const starColor = "#ffc107";
     const emptyStarColor = "#e4e5e9";
 
     const stars = [];
-    for (let i = 0; i < fullStars; i++) {
-      stars.push(<Star key={`full-${i}`} size={16} color={starColor} fill={starColor} />);
-    }
-    if (hasHalfStar) {
-      stars.push(<Star key="half" size={16} color={starColor} fill={starColor} />);
-    }
-    for (let i = 0; i < emptyStars; i++) {
-      stars.push(<Star key={`empty-${i}`} size={16} color={emptyStarColor} />);
+    for (let i = 0; i < 5; i++) {
+        stars.push(<Star key={`star-${i}`} size={16} color={i < fullStars ? starColor : emptyStarColor} fill={i < fullStars ? starColor : 'transparent'} />);
     }
     return (
       <View style={styles.starsContainer}>
@@ -210,7 +216,7 @@ export default function TransferDetailsScreen() {
       </View>
     );
   };
-
+  
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -246,7 +252,7 @@ export default function TransferDetailsScreen() {
                 <X size={24} color="#64748b" />
               </TouchableOpacity>
             </View>
-            <Text style={styles.modalInfo}>Quantas vagas você precisa?</Text>
+            <Text style={styles.modalInfo}>Quantas vagas precisa?</Text>
             <Text style={styles.label}>Vagas disponíveis: {availableSeats}</Text>
             <TextInput
               style={styles.modalInput}
@@ -291,8 +297,8 @@ export default function TransferDetailsScreen() {
             <View style={styles.detailItem}><MapPin size={20} color="#64748b" /><Text style={styles.detailLabel}>Destino:</Text><Text style={styles.detailText}>{transfer.transfer_types.destination_description}</Text></View>
             <View style={styles.detailItem}><Clock size={20} color="#64748b" /><Text style={styles.detailLabel}>Horário:</Text><Text style={styles.detailText}>{formatDate(transfer.departure_time)}</Text></View>
             <View style={styles.detailItem}><Car size={20} color="#64748b" /><Text style={styles.detailLabel}>Veículo:</Text><Text style={styles.detailText}>{transfer.vehicles.model} ({transfer.vehicles.plate})</Text></View>
-            <View style={styles.detailItem}><Users size={20} color="#64748b" /><Text style={styles.detailLabel}>Vagas:</Text><Text style={styles.detailText}>{isFull ? 'Lotado' : `${availableSeats} disponíveis de ${transfer.total_seats}`}</Text></View>
-            <View style={styles.detailItem}><DollarSign size={20} color="#64748b" /><Text style={styles.detailLabel}>Preço por Vaga:</Text><Text style={styles.detailText}>{formatPrice(transfer.price_per_seat)}</Text></View>
+            <View style={styles.detailItem}><Users size={20} color="#64748b" /><Text style={styles.detailLabel}>Vagas:</Text><Text style={styles.detailText}>{isFull ? 'Lotado' : `${availableSeats} de ${transfer.total_seats}`}</Text></View>
+            <View style={styles.detailItem}><DollarSign size={20} color="#64748b" /><Text style={styles.detailLabel}>Preço/Vaga:</Text><Text style={styles.detailText}>{formatPrice(transfer.price_per_seat)}</Text></View>
           </View>
 
           {transfer.observations && (
@@ -310,22 +316,9 @@ export default function TransferDetailsScreen() {
               ) : passengers.length > 0 ? (
                 passengers.map((p, index) => (
                   <View key={index} style={styles.passengerCard}>
-                    <View style={styles.detailItem}>
-                      <User size={16} color="#64748b" />
-                      <Text style={styles.passengerName}>{p.full_name}</Text>
-                    </View>
-                    {p.phone && (
-                      <View style={styles.detailItem}>
-                        <Phone size={16} color="#64748b" />
-                        <Text style={styles.passengerContact}>{p.phone}</Text>
-                      </View>
-                    )}
-                    {p.hotel && (
-                      <View style={styles.detailItem}>
-                        <Building size={16} color="#64748b" />
-                        <Text style={styles.passengerContact}>{p.hotel}</Text>
-                      </View>
-                    )}
+                    <View style={styles.detailItem}><User size={16} color="#64748b" /><Text style={styles.passengerName}>{p.full_name}</Text></View>
+                    {p.phone && <View style={styles.detailItem}><Phone size={16} color="#64748b" /><Text style={styles.passengerContact}>{p.phone}</Text></View>}
+                    {p.hotel && <View style={styles.detailItem}><Building size={16} color="#64748b" /><Text style={styles.passengerContact}>{p.hotel}</Text></View>}
                   </View>
                 ))
               ) : (
@@ -339,18 +332,20 @@ export default function TransferDetailsScreen() {
 
       {!isCreator && !isFull && (
         <View style={styles.bottomBar}>
-          <Text style={styles.bottomBarPrice}>{formatPrice(transfer.price_per_seat)}</Text>
-          <Text style={styles.bottomBarPriceLabel}>por vaga</Text>
+          <View>
+            <Text style={styles.bottomBarPrice}>{formatPrice(transfer.price_per_seat)}</Text>
+            <Text style={styles.bottomBarPriceLabel}>por vaga</Text>
+          </View>
           <TouchableOpacity style={styles.participateButton} onPress={() => setJoinModalVisible(true)}>
-            <Text style={styles.participateButtonText}>Entrar no Transfer</Text>
+            <Text style={styles.participateButtonText}>Reservar Vagas</Text>
           </TouchableOpacity>
         </View>
       )}
 
-      {isCreator && transfer.status === 'available' && (
+      {isCreator && (
         <View style={styles.bottomBar}>
-          <TouchableOpacity style={styles.creatorActionButton}>
-            <Text style={styles.creatorActionButtonText}>Gerenciar Transfer</Text>
+          <TouchableOpacity style={styles.creatorActionButton} onPress={() => router.push(`/(app)/my-transfers/${transferId}`)}>
+            <Text style={styles.creatorActionButtonText}>Gerir Transfer</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -361,42 +356,43 @@ export default function TransferDetailsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8fafc' },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  scrollView: { flex: 1, padding: 24 },
-  transferCard: { backgroundColor: '#ffffff', borderRadius: 16, padding: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 3 },
-  transferTitle: { fontSize: 24, fontWeight: 'bold', color: '#1e293b', marginBottom: 20 },
-  creatorInfoContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 20, padding: 12, backgroundColor: '#f8fafc', borderRadius: 12 },
+  errorText: {fontSize: 16, color: '#ef4444'},
+  scrollView: { flex: 1 },
+  transferCard: { backgroundColor: '#ffffff', borderRadius: 16, padding: 20, margin: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 3 },
+  transferTitle: { fontSize: 24, fontWeight: 'bold', color: '#1e293b', marginBottom: 20, lineHeight: 30 },
+  creatorInfoContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 24, padding: 12, backgroundColor: '#f8fafc', borderRadius: 12 },
   creatorAvatar: { width: 50, height: 50, borderRadius: 25 },
   avatarPlaceholder: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#2563eb', justifyContent: 'center', alignItems: 'center' },
   avatarText: { fontSize: 20, fontWeight: 'bold', color: '#ffffff' },
   creatorDetails: { marginLeft: 16 },
   creatorName: { fontSize: 18, fontWeight: '600', color: '#1e293b' },
-  starsContainer: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
-  ratingText: { fontSize: 14, fontWeight: '600', color: '#475569', marginLeft: 4 },
+  starsContainer: { flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 2 },
+  ratingText: { fontSize: 14, fontWeight: '600', color: '#475569', marginLeft: 6 },
   reviewCountText: { fontSize: 14, color: '#94a3b8', marginLeft: 4 },
-  section: { marginBottom: 20 },
-  detailItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 12 },
-  detailLabel: { fontSize: 16, fontWeight: '600', color: '#334155', minWidth: 80 },
-  detailText: { fontSize: 16, color: '#64748b', flex: 1 },
+  section: { marginBottom: 20, borderTopWidth: 1, borderTopColor: '#f1f5f9', paddingTop: 20 },
+  detailItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 12 },
+  detailLabel: { fontSize: 16, fontWeight: '600', color: '#334155', minWidth: 90 },
+  detailText: { fontSize: 16, color: '#64748b', flex: 1, flexWrap: 'wrap' },
   observationsText: { fontSize: 16, color: '#475569', marginTop: 8, lineHeight: 24 },
   bottomBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 16, paddingHorizontal: 24, backgroundColor: '#ffffff', borderTopWidth: 1, borderTopColor: '#e5e7eb' },
-  bottomBarPrice: { fontSize: 20, fontWeight: 'bold', color: '#10b981' },
-  bottomBarPriceLabel: { fontSize: 12, color: '#64748b' },
-  participateButton: { backgroundColor: '#2563eb', paddingVertical: 16, borderRadius: 12, alignItems: 'center', flex: 1, marginLeft: 16 },
+  bottomBarPrice: { fontSize: 22, fontWeight: 'bold', color: '#10b981' },
+  bottomBarPriceLabel: { fontSize: 14, color: '#64748b' },
+  participateButton: { backgroundColor: '#2563eb', paddingVertical: 16, borderRadius: 12, alignItems: 'center', flex: 1, marginLeft: 24 },
   participateButtonText: { color: '#ffffff', fontSize: 16, fontWeight: '600' },
-  creatorActionButton: { backgroundColor: '#f1f5f9', paddingVertical: 16, borderRadius: 12, alignItems: 'center', flex: 1 },
-  creatorActionButtonText: { color: '#475569', fontSize: 16, fontWeight: '600' },
+  creatorActionButton: { backgroundColor: '#2563eb', paddingVertical: 16, borderRadius: 12, alignItems: 'center', flex: 1 },
+  creatorActionButtonText: { color: '#ffffff', fontSize: 16, fontWeight: '600' },
   modalContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0, 0, 0, 0.5)' },
-  modalContent: { width: '90%', backgroundColor: '#ffffff', padding: 24, borderRadius: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 5 },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+  modalContent: { width: '90%', backgroundColor: '#ffffff', padding: 24, borderRadius: 16, gap: 16 },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   modalTitle: { fontSize: 20, fontWeight: 'bold', color: '#1e293b' },
-  modalInfo: { fontSize: 16, color: '#64748b', marginBottom: 8 },
-  label: { fontSize: 16, fontWeight: '500', color: '#374151', marginTop: 12, marginBottom: 8 },
+  modalInfo: { fontSize: 16, color: '#64748b' },
+  label: { fontSize: 14, fontWeight: '500', color: '#374151' },
   modalInput: { backgroundColor: '#f8fafc', padding: 14, borderRadius: 8, borderWidth: 1, borderColor: '#e5e7eb', fontSize: 16 },
   modalButton: { backgroundColor: '#10b981', paddingVertical: 14, borderRadius: 8, alignItems: 'center' },
   modalButtonText: { color: '#ffffff', fontSize: 16, fontWeight: '600' },
-  passengersSection: { marginTop: 20 },
+  passengersSection: { marginTop: 20, borderTopWidth: 1, borderTopColor: '#f1f5f9', paddingTop: 20 },
   passengersTitle: { fontSize: 18, fontWeight: '600', color: '#1e293b', marginBottom: 12 },
-  passengerCard: { backgroundColor: '#f8fafc', padding: 16, borderRadius: 12, marginBottom: 10, borderWidth: 1, borderColor: '#e2e8f0' },
+  passengerCard: { backgroundColor: '#f8fafc', padding: 16, borderRadius: 12, marginBottom: 10, borderWidth: 1, borderColor: '#e2e8f0', gap: 8 },
   passengerName: { fontSize: 16, fontWeight: '500', color: '#1e293b', marginLeft: 8 },
   passengerContact: { fontSize: 14, color: '#475569', marginLeft: 8 },
   noPassengersText: { fontSize: 14, color: '#94a3b8', textAlign: 'center', marginTop: 16 },
