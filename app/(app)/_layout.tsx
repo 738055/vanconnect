@@ -1,50 +1,18 @@
-import React, { useEffect } from 'react';
-import { Slot, useRouter, useSegments } from 'expo-router';
-import { AuthProvider, useAuth } from '../../contexts/AuthContext';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { NotificationProvider } from '../../contexts/NotificationContext';
-import { View, ActivityIndicator } from 'react-native';
-import Toast from 'react-native-toast-message';
+import { Redirect, Stack, useRouter } from 'expo-router';
+import { useAuth } from '../contexts/AuthContext';
+import { useEffect } from 'react';
+import { ActivityIndicator, View } from 'react-native';
 
-const queryClient = new QueryClient();
-
-function RootLayoutNav() {
-  const { user, profile, loading } = useAuth();
-  const segments = useSegments();
+export default function AppLayout() {
+  const { profile, loading, session } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (loading) return; // Aguarda o carregamento inicial do estado de autenticação
-
-    const inAuthGroup = segments[0] === '(auth)';
-    const inAppGroup = segments[0] === '(app)';
-
-    if (!user) {
-      // Se não há usuário e não estamos no fluxo de autenticação, redireciona para lá
-      if (!inAuthGroup) {
-        router.replace('/(auth)/welcome');
-      }
-    } else if (user) {
-      // Se há usuário, verifica o status do perfil
-      if (profile?.status === 'incomplete') {
-        router.replace('/(auth)/complete-profile');
-      } else if (profile?.status === 'pending') {
-        router.replace('/(auth)/pending');
-      } else if (profile?.status === 'rejected') {
-        router.replace('/(auth)/rejected');
-      } else if (profile?.status === 'approved') {
-        // Se aprovado, verifica se conectou ao Stripe
-        if (profile.stripe_onboarding_complete === false) {
-          router.replace('/(app)/onboarding/connect-stripe');
-        } else {
-          // Se tudo estiver completo e não estivermos no grupo principal do app, redireciona para lá
-          if (!inAppGroup) {
-            router.replace('/(app)/(tabs)');
-          }
-        }
-      }
+    if (!loading && !session) {
+      // Se não está a carregar e não há sessão, redireciona para a autenticação.
+      router.replace('/(auth)/welcome');
     }
-  }, [user, profile, loading, segments]);
+  }, [session, loading, router]);
 
   if (loading) {
     return (
@@ -54,18 +22,38 @@ function RootLayoutNav() {
     );
   }
 
-  return <Slot />;
-}
+  if (!session) {
+    // Redireciona para o fluxo de autenticação se não estiver logado
+    return <Redirect href="/(auth)/welcome" />;
+  }
 
-export default function RootLayout() {
+  // Lógica de redirecionamento com base no status do perfil
+  if (profile) {
+    if (profile.status === 'incomplete') {
+      return <Redirect href="/(auth)/complete-profile" />;
+    }
+    if (profile.status === 'pending') {
+      return <Redirect href="/(auth)/pending" />;
+    }
+    if (profile.status === 'rejected') {
+      return <Redirect href="/(auth)/rejected" />;
+    }
+  }
+
   return (
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <NotificationProvider>
-          <RootLayoutNav />
-          <Toast />
-        </NotificationProvider>
-      </AuthProvider>
-    </QueryClientProvider>
+    <Stack>
+      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen name="edit-profile" options={{ title: 'Editar Perfil' }}/>
+      <Stack.Screen name="my-participations" options={{ headerShown: false }} />
+      <Stack.Screen name="my-transfers" options={{ headerShown: false }} />
+      <Stack.Screen name="onboarding/connect-stripe" options={{ presentation: 'modal', title: 'Conectar Conta Stripe' }}/>
+      <Stack.Screen name="user-profile/[id]" options={{ title: 'Perfil do Usuário' }} />
+      <Stack.Screen name="transfer-details/[id]" options={{ title: 'Detalhes do Transfer' }} />
+      <Stack.Screen name="vehicles/index" options={{ title: 'Meus Veículos' }} />
+      <Stack.Screen name="vehicles/create" options={{ presentation: 'modal', title: 'Adicionar Veículo' }} />
+      <Stack.Screen name="booking/add-passengers" options={{ presentation: 'modal', title: 'Adicionar Passageiros' }} />
+      <Stack.Screen name="booking/pix-payment" options={{ presentation: 'modal', title: 'Pagamento PIX' }} />
+    </Stack>
   );
 }
+
