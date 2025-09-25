@@ -1,3 +1,5 @@
+// Em: contexts/AuthContext.tsx
+
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
@@ -31,6 +33,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [loading, setLoading] = useState(true);
 
   const fetchProfile = async (userId: string) => {
+    console.log("-> AuthContext: Tentando buscar perfil para o user ID:", userId);
     try {
       const { data, error } = await supabase
         .from('profiles')
@@ -39,38 +42,50 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         .single();
       if (error && error.code !== 'PGRST116') throw error;
       setProfile(data || null);
+      console.log("-> AuthContext: Perfil encontrado e definido no estado.");
     } catch (error) {
-      console.error('[AuthContext] Erro ao buscar perfil:', error);
+      console.error("-> AuthContext: ERRO ao buscar perfil:", error);
       setProfile(null);
     }
   };
 
   useEffect(() => {
     const initializeAuth = async () => {
-      try {
-        const { data: { session: initialSession }, error: sessionError } = await supabase.auth.getSession();
-        if (sessionError) throw sessionError;
-        if (initialSession) {
-          await fetchProfile(initialSession.user.id);
-        }
-        setSession(initialSession);
-        setUser(initialSession?.user ?? null);
-      } catch (e) {
-        console.error('[AuthContext] Erro na inicialização da sessão:', e);
-      } finally {
+      console.log("-> AuthContext: 1. Iniciando autenticação...");
+      setLoading(true);
+      
+      const { data: { session: initialSession }, error } = await supabase.auth.getSession();
+
+      if (error) {
+        console.error("-> AuthContext: ERRO CRÍTICO ao obter sessão:", error);
         setLoading(false);
+        return;
       }
+      
+      console.log("-> AuthContext: 2. getSession() concluído.", initialSession ? "Sessão encontrada." : "Nenhuma sessão.");
+
+      if (initialSession?.user) {
+        await fetchProfile(initialSession.user.id);
+      }
+      
+      setSession(initialSession);
+      setUser(initialSession?.user ?? null);
+      console.log("-> AuthContext: 3. Estado inicial definido. Fim do loading.");
+      setLoading(false);
     };
+
     initializeAuth();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_IN' && session) {
-        await fetchProfile(session.user.id);
-      } else if (event === 'SIGNED_OUT') {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, currentSession) => {
+      console.log(`-> AuthContext: Evento de autenticação recebido: ${_event}`);
+      setSession(currentSession);
+      setUser(currentSession?.user ?? null);
+      
+      if (currentSession?.user) {
+        await fetchProfile(currentSession.user.id);
+      } else {
         setProfile(null);
       }
-      setSession(session);
-      setUser(session?.user ?? null);
     });
 
     return () => {
