@@ -1,3 +1,5 @@
+// Em: app/(app)/my-participations/_layout.tsx
+
 import { Stack } from 'expo-router';
 import React from 'react';
 
@@ -19,6 +21,14 @@ export default function MyParticipationsLayout() {
         name="index"
         options={{
           title: 'Minhas Participações',
+        }}
+      />
+      {/* ✅ CORREÇÃO: Adicionada a declaração do ecrã de pagamento */}
+      <Stack.Screen
+        name="pix-payment"
+        options={{
+          presentation: 'modal',
+          title: 'Pagamento PIX',
         }}
       />
     </Stack>

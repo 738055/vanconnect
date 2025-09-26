@@ -1,12 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, SafeAreaView, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
-import { supabase } from '../../lib/supabase'; // Ajuste o caminho se necessário: ../../lib/supabase
-import { useAuth } from '../../contexts/AuthContext'; // Ajuste o caminho se necessário: ../../contexts/AuthContext
+import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../contexts/AuthContext';
 import { CheckCircle, XCircle } from 'lucide-react-native';
 
-// O nome do componente
-function OnboardingCompleteScreen() {
+export default function OnboardingCompleteScreen() {
   const router = useRouter();
   const { refreshProfile } = useAuth();
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
@@ -15,33 +14,40 @@ function OnboardingCompleteScreen() {
   useEffect(() => {
     const verifyStripeAccount = async () => {
       try {
+        // Chama a sua função de backend para verificar o status
         const { data, error } = await supabase.functions.invoke('get-stripe-account-status');
         if (error) throw error;
+        
+        // Se a função retornar que o cadastro está completo...
         if (data.onboardingComplete) {
           setStatus('success');
-          await refreshProfile(); 
+          await refreshProfile(); // Atualiza os dados do perfil na aplicação
+          
+          // Aguarda 2 segundos para o utilizador ver a mensagem de sucesso
           setTimeout(() => {
-            router.replace('/(app)/(tabs)');
+            router.replace('/(app)/(tabs)'); // Redireciona para a tela principal
           }, 2000);
         } else {
-          throw new Error(data.message || 'A verificação da conta Stripe falhou.');
+          // Se a Stripe informar que o cadastro não foi concluído
+          throw new Error('O processo de cadastro na Stripe não foi finalizado.');
         }
       } catch (err: any) {
         setStatus('error');
         setErrorMessage(err.message);
-        console.error(err);
+        console.error("Erro ao verificar conta Stripe:", err);
       }
     };
     verifyStripeAccount();
   }, []);
 
+  // O resto do ficheiro para renderizar as mensagens de loading, sucesso ou erro...
   const renderContent = () => {
     switch (status) {
       case 'loading':
         return (
           <>
             <ActivityIndicator size="large" color="#1e293b" />
-            <Text style={styles.message}>A verificar a sua conta Stripe...</Text>
+            <Text style={styles.message}>A finalizar a sua conexão...</Text>
           </>
         );
       case 'success':
@@ -92,6 +98,3 @@ const styles = StyleSheet.create({
   },
   buttonText: { color: '#ffffff', fontSize: 16, fontWeight: 'bold' },
 });
-
-// ✅ ESTA É A LINHA CRÍTICA QUE ESTAVA A FALTAR
-export default OnboardingCompleteScreen;

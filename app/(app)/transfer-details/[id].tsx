@@ -1,5 +1,3 @@
-// Em: app/(app)/transfer-details/[id].tsx
-
 import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
@@ -33,16 +31,16 @@ type TransferDetails = {
     title: string;
     origin_description: string;
     destination_description: string;
-  };
+  } | null;
   profiles: {
     full_name: string;
     phone: string | null;
     avatar_url: string | null;
-  };
+  } | null;
   vehicles: {
     model: string;
     plate: string;
-  };
+  } | null;
 };
 
 type PassengerDetail = {
@@ -87,21 +85,22 @@ export default function TransferDetailsScreen() {
       if (error) throw error;
       setTransfer(data as TransferDetails);
 
-      const { data: reviewsData, error: reviewsError } = await supabase
-        .from('reviews')
-        .select('rating')
-        .eq('reviewee_id', data.creator_id);
+      if (data?.creator_id) {
+        const { data: reviewsData, error: reviewsError } = await supabase
+          .from('reviews')
+          .select('rating')
+          .eq('reviewee_id', data.creator_id);
 
-      if (reviewsError) throw reviewsError;
-      
-      const totalReviews = reviewsData.length;
-      const averageRating = totalReviews > 0 
-        ? reviewsData.reduce((sum, review) => sum + review.rating, 0) / totalReviews
-        : 0;
+        if (reviewsError) throw reviewsError;
+        
+        const totalReviews = reviewsData.length;
+        const averageRating = totalReviews > 0 
+          ? reviewsData.reduce((sum, review) => sum + review.rating, 0) / totalReviews
+          : 0;
 
-      setCreatorAverageRating(averageRating);
-      setCreatorTotalReviews(totalReviews);
-
+        setCreatorAverageRating(averageRating);
+        setCreatorTotalReviews(totalReviews);
+      }
     } catch (error: any) {
       console.error("Erro ao buscar detalhes do transfer:", error);
       Alert.alert("Erro", "Não foi possível carregar os detalhes do transfer.");
@@ -118,7 +117,7 @@ export default function TransferDetailsScreen() {
         .from('transfer_participations')
         .select('id')
         .eq('transfer_id', transferId)
-        .eq('status', 'paid'); // ✅ Apenas passageiros com pagamento confirmado
+        .eq('status', 'paid');
 
       if (participationsError) throw participationsError;
       
@@ -164,9 +163,10 @@ export default function TransferDetailsScreen() {
     }
   }, [isCreator, fetchPassengers]);
 
-  const formatPrice = (price: number) => `R$ ${price.toFixed(2)}`;
+  const formatPrice = (price: number) => `R$ ${price?.toFixed(2) || '0.00'}`;
 
   const formatDate = (dateString: string) => {
+    if (!dateString) return 'Data indisponível';
     const date = new Date(dateString);
     return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
   };
@@ -187,7 +187,6 @@ export default function TransferDetailsScreen() {
     const totalPrice = seats * (transfer?.price_per_seat || 0);
     setJoinModalVisible(false);
 
-    // ✅ AÇÃO CRÍTICA: Passar o creator_id para o próximo ecrã
     router.push({
       pathname: `/(app)/booking/add-passengers`,
       params: { 
@@ -234,7 +233,7 @@ export default function TransferDetailsScreen() {
   }
   
   const hasCreatorAvatar = transfer.profiles?.avatar_url;
-  const creatorInitials = transfer.profiles?.full_name?.charAt(0) || '?';
+  const creatorInitials = transfer.profiles?.full_name?.charAt(0) ?? '?';
 
   return (
     <SafeAreaView style={styles.container}>
@@ -273,30 +272,30 @@ export default function TransferDetailsScreen() {
         refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchTransferDetails} />}
       >
         <View style={styles.transferCard}>
-          <Text style={styles.transferTitle}>{transfer.transfer_types.title}</Text>
+          <Text style={styles.transferTitle}>{transfer.transfer_types?.title ?? 'Título indisponível'}</Text>
           
           <TouchableOpacity 
             style={styles.creatorInfoContainer}
             onPress={() => router.push({ pathname: `/(app)/user-profile/${transfer.creator_id}` })}
           >
             {hasCreatorAvatar ? (
-              <Image source={{ uri: transfer.profiles.avatar_url }} style={styles.creatorAvatar} />
+              <Image source={{ uri: transfer.profiles.avatar_url! }} style={styles.creatorAvatar} />
             ) : (
               <View style={styles.avatarPlaceholder}>
                 <Text style={styles.avatarText}>{creatorInitials}</Text>
               </View>
             )}
             <View style={styles.creatorDetails}>
-              <Text style={styles.creatorName}>{transfer.profiles?.full_name || 'Usuário'}</Text>
+              <Text style={styles.creatorName}>{transfer.profiles?.full_name ?? 'Usuário'}</Text>
               {renderStars(creatorAverageRating, creatorTotalReviews)}
             </View>
           </TouchableOpacity>
 
           <View style={styles.section}>
-            <View style={styles.detailItem}><MapPin size={20} color="#64748b" /><Text style={styles.detailLabel}>Origem:</Text><Text style={styles.detailText}>{transfer.transfer_types.origin_description}</Text></View>
-            <View style={styles.detailItem}><MapPin size={20} color="#64748b" /><Text style={styles.detailLabel}>Destino:</Text><Text style={styles.detailText}>{transfer.transfer_types.destination_description}</Text></View>
+            <View style={styles.detailItem}><MapPin size={20} color="#64748b" /><Text style={styles.detailLabel}>Origem:</Text><Text style={styles.detailText}>{transfer.transfer_types?.origin_description ?? 'N/A'}</Text></View>
+            <View style={styles.detailItem}><MapPin size={20} color="#64748b" /><Text style={styles.detailLabel}>Destino:</Text><Text style={styles.detailText}>{transfer.transfer_types?.destination_description ?? 'N/A'}</Text></View>
             <View style={styles.detailItem}><Clock size={20} color="#64748b" /><Text style={styles.detailLabel}>Horário:</Text><Text style={styles.detailText}>{formatDate(transfer.departure_time)}</Text></View>
-            <View style={styles.detailItem}><Car size={20} color="#64748b" /><Text style={styles.detailLabel}>Veículo:</Text><Text style={styles.detailText}>{transfer.vehicles.model} ({transfer.vehicles.plate})</Text></View>
+            <View style={styles.detailItem}><Car size={20} color="#64748b" /><Text style={styles.detailLabel}>Veículo:</Text><Text style={styles.detailText}>{`${transfer.vehicles?.model ?? 'N/A'} (${transfer.vehicles?.plate ?? 'N/A'})`}</Text></View>
             <View style={styles.detailItem}><Users size={20} color="#64748b" /><Text style={styles.detailLabel}>Vagas:</Text><Text style={styles.detailText}>{isFull ? 'Lotado' : `${availableSeats} de ${transfer.total_seats}`}</Text></View>
             <View style={styles.detailItem}><DollarSign size={20} color="#64748b" /><Text style={styles.detailLabel}>Preço/Vaga:</Text><Text style={styles.detailText}>{formatPrice(transfer.price_per_seat)}</Text></View>
           </View>

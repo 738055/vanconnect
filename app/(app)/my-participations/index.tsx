@@ -3,13 +3,21 @@ import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Ref
 import { useAuth } from '../../../contexts/AuthContext';
 import { supabase } from '../../../lib/supabase';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { UserCheck, Clock, XCircle, CheckCircle2, MessageSquare } from 'lucide-react-native';
+import { Clock, CheckCircle2, User as UserIcon, Home, Plane, ChevronDown, ChevronUp } from 'lucide-react-native';
+
+// ✅ TIPO ATUALIZADO
+type Passenger = {
+  full_name: string;
+  hotel_address: string | null;
+  flight_info: string | null;
+};
 
 type Participation = {
   id: number;
   status: string;
   seats_requested: number;
   total_price: number | null;
+  passengers: Passenger[];
   transfers: {
     id: number;
     departure_time: string;
@@ -26,16 +34,19 @@ export default function MyParticipationsScreen() {
   const { profile } = useAuth();
   const [participations, setParticipations] = useState<Participation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [expandedCardId, setExpandedCardId] = useState<number | null>(null);
   const router = useRouter();
 
   const fetchMyParticipations = useCallback(async () => {
     if (!profile) return;
     setLoading(true);
     try {
+      // ✅ QUERY ATUALIZADA para buscar os passageiros
       const { data, error } = await supabase
         .from('transfer_participations')
         .select(`
           id, status, seats_requested, total_price,
+          passengers ( full_name, hotel_address, flight_info ),
           transfers (
             id, departure_time,
             transfer_types ( title ),
@@ -46,7 +57,7 @@ export default function MyParticipationsScreen() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setParticipations(data || []);
+      setParticipations(data as Participation[] || []);
     } catch (error) {
       console.error('Error fetching my participations:', error);
     } finally {
@@ -54,20 +65,21 @@ export default function MyParticipationsScreen() {
     }
   }, [profile]);
 
-  // ✅ CORREÇÃO APLICADA AQUI
   useFocusEffect(
     useCallback(() => {
       fetchMyParticipations();
     }, [fetchMyParticipations])
   );
-
-  const handlePayViaWhatsApp = async (participation: Participation) => { /* ... (código não muda) ... */ };
-  const StatusInfo = ({ status }: { status: string }) => { /* ... (código não muda) ... */ };
+  
+  const handleToggleExpand = (id: number) => {
+    setExpandedCardId(expandedCardId === id ? null : id);
+  };
+  
+  // Componente de Status permanece o mesmo...
+  const StatusInfo = ({ status }: { status: string }) => { /* ... */ };
 
   if (loading) {
-    return (
-      <View style={styles.centered}><ActivityIndicator size="large" /></View>
-    );
+    return <View style={styles.centered}><ActivityIndicator size="large" /></View>;
   }
 
   return (
@@ -85,25 +97,29 @@ export default function MyParticipationsScreen() {
               </View>
               <View style={styles.cardBody}>
                 <Text style={styles.cardText}>Data: {new Date(p.transfers?.departure_time || '').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })}</Text>
-                <Text style={styles.cardText}>Vagas Solicitadas: {p.seats_requested}</Text>
+                <Text style={styles.cardText}>Vagas Reservadas: {p.seats_requested}</Text>
                 <Text style={styles.cardPrice}>Valor Total: R$ {(p.total_price || 0).toFixed(2)}</Text>
               </View>
-              {p.status === 'approved' && (
-                <View style={styles.actionsContainer}>
-                  <TouchableOpacity 
-                    style={styles.secondaryActionButton}
-                    onPress={() => router.push(`/(app)/participations/${p.id}/add-passengers`)}
-                  >
-                    <UserCheck size={16} color="#4f46e5" />
-                    <Text style={styles.secondaryActionButtonText}>Informar Passageiros</Text>
+
+              {/* ✅ NOVO: Seção Expansível para Detalhes dos Passageiros */}
+              {p.status === 'paid' && (
+                <View style={styles.detailsSection}>
+                  <TouchableOpacity style={styles.detailsButton} onPress={() => handleToggleExpand(p.id)}>
+                    <Text style={styles.detailsButtonText}>Ver Detalhes</Text>
+                    {expandedCardId === p.id ? <ChevronUp size={16} color="#2563eb" /> : <ChevronDown size={16} color="#2563eb" />}
                   </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={styles.primaryActionButton}
-                    onPress={() => handlePayViaWhatsApp(p)}
-                  >
-                    <MessageSquare size={16} color="#ffffff" />
-                    <Text style={styles.primaryActionButtonText}>Pagar via WhatsApp</Text>
-                  </TouchableOpacity>
+                  
+                  {expandedCardId === p.id && (
+                    <View style={styles.passengerList}>
+                      {p.passengers.map((passenger, index) => (
+                        <View key={index} style={styles.passengerItem}>
+                          <View style={styles.passengerDetail}><UserIcon size={16} color="#475569"/><Text style={styles.passengerText}>{passenger.full_name}</Text></View>
+                          <View style={styles.passengerDetail}><Home size={16} color="#475569"/><Text style={styles.passengerText}>{passenger.hotel_address}</Text></View>
+                          <View style={styles.passengerDetail}><Plane size={16} color="#475569"/><Text style={styles.passengerText}>{passenger.flight_info}</Text></View>
+                        </View>
+                      ))}
+                    </View>
+                  )}
                 </View>
               )}
             </View>
@@ -144,89 +160,20 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     marginBottom: 12,
   },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1e293b',
-    flex: 1,
-    marginRight: 12,
-  },
-  cardBody: {
-    gap: 8,
-    marginBottom: 8,
-  },
-  cardText: {
-    fontSize: 14,
-    color: '#475569',
-  },
-  cardPrice: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#1e293b',
-    marginTop: 4,
-  },
-  statusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    gap: 6,
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  actionsContainer: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 16,
-  },
-  primaryActionButton: {
-    flex: 1,
-    backgroundColor: '#2563eb',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    borderRadius: 8,
-    gap: 8,
-  },
-  primaryActionButtonText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  secondaryActionButton: {
-    flex: 1,
-    backgroundColor: '#eef2ff',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    borderRadius: 8,
-    gap: 8,
-  },
-  secondaryActionButtonText: {
-    color: '#4f46e5',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  emptyState: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: 100,
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#64748b',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  emptyDescription: {
-    fontSize: 14,
-    color: '#94a3b8',
-    textAlign: 'center',
-  },
+  cardTitle: { fontSize: 18, fontWeight: '600', color: '#1e293b', flex: 1, marginRight: 12 },
+  cardBody: { gap: 8, marginBottom: 8 },
+  cardText: { fontSize: 14, color: '#475569' },
+  cardPrice: { fontSize: 16, fontWeight: 'bold', color: '#1e293b', marginTop: 4 },
+  statusBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, gap: 6 },
+  statusText: { fontSize: 12, fontWeight: 'bold' },
+  detailsSection: { marginTop: 16, borderTopWidth: 1, borderTopColor: '#f1f5f9', paddingTop: 16 },
+  detailsButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  detailsButtonText: { color: '#2563eb', fontSize: 14, fontWeight: '600' },
+  passengerList: { marginTop: 16, gap: 12 },
+  passengerItem: { backgroundColor: '#f8fafc', padding: 12, borderRadius: 8, gap: 8 },
+  passengerDetail: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  passengerText: { fontSize: 14, color: '#334155' },
+  emptyState: { alignItems: 'center', justifyContent: 'center', paddingTop: 100 },
+  emptyTitle: { fontSize: 18, fontWeight: '600', color: '#64748b', marginTop: 16, marginBottom: 8 },
+  emptyDescription: { fontSize: 14, color: '#94a3b8', textAlign: 'center' },
 });

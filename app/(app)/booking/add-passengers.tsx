@@ -1,5 +1,3 @@
-// Em: app/(app)/booking/add-passengers.tsx
-
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -15,29 +13,33 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { supabase } from '../../../lib/supabase';
 import { useAuth } from '../../../contexts/AuthContext';
-import { User, DollarSign } from 'lucide-react-native';
-import { useStripe } from '@stripe/stripe-react-native';
+import { User, DollarSign, Home, Plane } from 'lucide-react-native';
 
 type PassengerInput = {
   full_name: string;
   document_number: string;
+  hotel_address: string;
+  flight_info: string;
 };
 
 export default function AddPassengersScreen() {
   const { transferId, seatsRequested, totalPrice } = useLocalSearchParams();
   const router = useRouter();
   const { profile } = useAuth();
-  const { initPaymentSheet, presentPaymentSheet } = useStripe();
 
   const [passengers, setPassengers] = useState<PassengerInput[]>([]);
   const [loading, setLoading] = useState(false);
-
   const numericSeats = Number(seatsRequested);
 
   useEffect(() => {
     if (numericSeats > 0) {
       setPassengers(
-        Array.from({ length: numericSeats }, () => ({ full_name: '', document_number: '' }))
+        Array.from({ length: numericSeats }, () => ({ 
+          full_name: '', 
+          document_number: '',
+          hotel_address: '',
+          flight_info: '' 
+        }))
       );
     }
   }, [numericSeats]);
@@ -51,44 +53,34 @@ export default function AddPassengersScreen() {
   const handleConfirmAndPay = async () => {
     if (!profile) return Alert.alert("Erro", "Você precisa estar logado.");
     for (const p of passengers) {
-      if (!p.full_name.trim()) {
-        return Alert.alert('Erro', 'O nome de todos os passageiros é obrigatório.');
+      if (!p.full_name.trim() || !p.hotel_address.trim() || !p.flight_info.trim()) {
+        return Alert.alert('Erro', 'Nome, Hotel/Endereço e Voo são obrigatórios para todos os passageiros.');
       }
     }
 
     setLoading(true);
     try {
-      // 1. Chamar a Edge Function para criar a participação e o payment intent
+      // ✅ CORREÇÃO: O nome do campo foi alterado de 'seats' para 'seatsRequested'
       const { data, error: functionError } = await supabase.functions.invoke('create-payment-intent', {
         body: {
-          transferId: transferId,
-          seats: numericSeats,
+          transferId: Number(transferId),
+          seatsRequested: numericSeats,
           passengers: passengers,
         },
       });
       if (functionError) throw functionError;
 
-      // 2. Inicializar o ecrã de pagamento do Stripe
-      const { clientSecret } = data;
-      const { error: initError } = await initPaymentSheet({
-        merchantDisplayName: "TransferApp",
-        paymentIntentClientSecret: clientSecret,
-      });
-      if (initError) throw initError;
-
-      // 3. Apresentar o ecrã de pagamento
-      const { error: paymentError } = await presentPaymentSheet();
-      if (paymentError) {
-        if (paymentError.code !== 'Canceled') {
-          Alert.alert('Erro no Pagamento', paymentError.message);
+      router.push({
+        pathname: '/(app)/my-participations/pix-payment',
+        params: {
+          pixQrCodeUrl: data.pixQrCodeUrl,
+          pixCode: data.pixCode,
+          totalPrice: totalPrice,
         }
-      } else {
-        Alert.alert('Pagamento Confirmado!', 'Sua reserva foi concluída com sucesso.', [
-          { text: 'OK', onPress: () => router.replace('/(app)/(tabs)/my-participations') },
-        ]);
-      }
+      });
+
     } catch (err: any) {
-      Alert.alert('Erro na Reserva', err.data?.error || err.message || 'Ocorreu um problema.');
+      Alert.alert('Erro ao Gerar PIX', err.message || 'Ocorreu um problema.');
     } finally {
       setLoading(false);
     }
@@ -104,10 +96,24 @@ export default function AddPassengersScreen() {
           {passengers.map((passenger, index) => (
             <View key={index} style={styles.passengerCard}>
               <Text style={styles.passengerTitle}>Passageiro {index + 1}</Text>
+              
               <Text style={styles.label}>Nome Completo *</Text>
-              <TextInput style={styles.input} value={passenger.full_name} onChangeText={(v) => handleInputChange(index, 'full_name', v)} />
+              <TextInput style={styles.input} value={passenger.full_name} onChangeText={(v) => handleInputChange(index, 'full_name', v)} placeholder="Nome como no documento" />
+              
               <Text style={styles.label}>Documento (RG ou CPF)</Text>
-              <TextInput style={styles.input} value={passenger.document_number} onChangeText={(v) => handleInputChange(index, 'document_number', v)} />
+              <TextInput style={styles.input} value={passenger.document_number} onChangeText={(v) => handleInputChange(index, 'document_number', v)} placeholder="Opcional" />
+
+              <Text style={styles.label}>Hotel ou Endereço *</Text>
+              <View style={styles.inputWithIcon}>
+                <Home size={20} color="#64748b" />
+                <TextInput style={styles.inputText} value={passenger.hotel_address} onChangeText={(v) => handleInputChange(index, 'hotel_address', v)} placeholder="Ex: Hotel das Cataratas" />
+              </View>
+
+              <Text style={styles.label}>Voo de IN/OUT *</Text>
+              <View style={styles.inputWithIcon}>
+                 <Plane size={20} color="#64748b" />
+                <TextInput style={styles.inputText} value={passenger.flight_info} onChangeText={(v) => handleInputChange(index, 'flight_info', v)} placeholder="Ex: GOL 1234, 15:30" />
+              </View>
             </View>
           ))}
         </View>
@@ -119,13 +125,13 @@ export default function AddPassengersScreen() {
           <Text style={styles.priceValue}>R$ {Number(totalPrice).toFixed(2)}</Text>
         </View>
         <TouchableOpacity style={[styles.saveButton, loading && styles.disabledButton]} onPress={handleConfirmAndPay} disabled={loading}>
-          {loading ? <ActivityIndicator color="#fff" /> : <><DollarSign size={20} color="#ffffff" /><Text style={styles.saveButtonText}>Pagar e Confirmar</Text></>}
+          {loading ? <ActivityIndicator color="#fff" /> : <><DollarSign size={20} color="#ffffff" /><Text style={styles.saveButtonText}>Gerar PIX para Pagamento</Text></>}
         </TouchableOpacity>
       </View>
     </SafeAreaView>
   );
 }
-// ... (Copie os mesmos estilos do ficheiro que já lhe enviei anteriormente)
+
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#f8fafc' },
     scrollView: { flex: 1 },
@@ -136,6 +142,8 @@ const styles = StyleSheet.create({
     passengerTitle: { fontSize: 18, fontWeight: 'bold', color: '#2563eb', marginBottom: 16, borderBottomWidth: 1, borderBottomColor: '#f1f5f9', paddingBottom: 12 },
     label: { fontSize: 14, fontWeight: '500', color: '#374151', marginBottom: 8, marginTop: 12 },
     input: { backgroundColor: '#f8fafc', padding: 14, borderRadius: 8, borderWidth: 1, borderColor: '#e5e7eb', fontSize: 16, },
+    inputWithIcon: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8fafc', paddingHorizontal: 14, borderRadius: 8, borderWidth: 1, borderColor: '#e5e7eb', gap: 12 },
+    inputText: { flex: 1, fontSize: 16, paddingVertical: 14, color: '#1e293b' },
     footer: { padding: 24, borderTopWidth: 1, borderTopColor: '#e5e7eb', backgroundColor: '#ffffff', gap: 16 },
     priceContainer: {flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'},
     priceLabel: {fontSize: 16, color: '#475569'},

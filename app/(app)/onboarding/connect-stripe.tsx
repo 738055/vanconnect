@@ -1,3 +1,5 @@
+// Em: app/(app)/onboarding/connect-stripe.tsx
+
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -15,12 +17,17 @@ export default function ConnectStripeScreen() {
   const handleConnectStripe = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke('create-stripe-account');
-      if (error) throw error;
+      const { data, error } = await supabase.functions.invoke('create-stripe-account-link');
+      if (error) {
+        throw error;
+      }
       setStripeOnboardingUrl(data.url);
     } catch (error: any) {
-      Alert.alert('Erro', 'Não foi possível iniciar a conexão com o Stripe. Tente novamente.');
-      console.error(error);
+      console.error('Falha ao invocar a Edge Function:', JSON.stringify(error, null, 2));
+      Alert.alert(
+        'Erro de Comunicação',
+        `Não foi possível comunicar com o servidor. Detalhes: ${error.message || 'Erro desconhecido.'}`
+      );
     } finally {
       setLoading(false);
     }
@@ -28,19 +35,21 @@ export default function ConnectStripeScreen() {
 
   const handleNavigationStateChange = (navState: any) => {
     const { url } = navState;
-    if (url.includes(process.env.EXPO_PUBLIC_SITE_URL!)) {
-      setStripeOnboardingUrl(null);
+    const siteUrl = process.env.EXPO_PUBLIC_SITE_URL;
+
+    if (siteUrl && url.includes(siteUrl)) {
+      setStripeOnboardingUrl(null); // Fecha a WebView
+
+      // ✅ CORREÇÃO: Redireciona para o ecrã de conclusão para verificação final.
       if (url.includes('/onboarding-complete')) {
-        refreshProfile();
-        router.replace('/(app)/(tabs)/profile');
-        Alert.alert('Sucesso!', 'Sua conta foi conectada e está pronta para receber pagamentos.');
+        router.replace('/(app)/onboarding-complete');
       } else if (url.includes('/onboarding-failed')) {
-        router.replace('/(app)/(tabs)/profile');
-        Alert.alert('Ocorreu um problema', 'Não foi possível concluir a conexão com o Stripe. Você pode tentar novamente a partir do seu perfil.');
+        router.replace('/(app)/onboarding-failed');
       }
     }
   };
   
+  // O resto do ficheiro permanece igual...
   if (stripeOnboardingUrl) {
     return (
       <SafeAreaView style={{ flex: 1 }}>
@@ -58,7 +67,7 @@ export default function ConnectStripeScreen() {
         <Banknote size={48} color="#4f46e5" />
         <Text style={styles.title}>Conecte-se para Receber</Text>
         <Text style={styles.description}>
-          Para receber pagamentos pelos seus transfers, você precisa conectar uma conta Stripe. O processo é seguro e gerenciado pela Stripe.
+          Para receber pagamentos pelos seus transfers, precisa de conectar uma conta Stripe. O processo é seguro e gerido pela Stripe.
         </Text>
         <TouchableOpacity style={styles.button} onPress={handleConnectStripe} disabled={loading}>
           {loading ? (
