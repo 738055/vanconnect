@@ -3,9 +3,8 @@ import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, Ref
 import { useAuth } from '../../../contexts/AuthContext';
 import { supabase } from '../../../lib/supabase';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { Clock, CheckCircle2, User as UserIcon, Home, Plane, ChevronDown, ChevronUp } from 'lucide-react-native';
+import { Clock, CheckCircle2, User as UserIcon, Home, Plane, ChevronDown, ChevronUp, XCircle } from 'lucide-react-native';
 
-// ✅ TIPO ATUALIZADO
 type Passenger = {
   full_name: string;
   hotel_address: string | null;
@@ -14,7 +13,7 @@ type Passenger = {
 
 type Participation = {
   id: number;
-  status: string;
+  status: 'pending' | 'paid' | 'rejected' | 'approved';
   seats_requested: number;
   total_price: number | null;
   passengers: Passenger[];
@@ -30,6 +29,25 @@ type Participation = {
   } | null;
 };
 
+// ✅ Componente de Status Implementado
+const StatusInfo = ({ status }: { status: Participation['status'] }) => {
+  const statusConfig = {
+    paid: { text: 'Pago', color: '#10b981', icon: <CheckCircle2 size={14} color="#ffffff" /> },
+    pending: { text: 'Pendente', color: '#f59e0b', icon: <Clock size={14} color="#ffffff" /> },
+    rejected: { text: 'Rejeitado', color: '#ef4444', icon: <XCircle size={14} color="#ffffff" /> },
+    approved: { text: 'Aprovado', color: '#3b82f6', icon: <CheckCircle2 size={14} color="#ffffff" /> },
+  };
+
+  const config = statusConfig[status] || { text: status, color: '#64748b', icon: null };
+
+  return (
+    <View style={[styles.statusBadge, { backgroundColor: config.color }]}>
+      {config.icon}
+      <Text style={styles.statusText}>{config.text}</Text>
+    </View>
+  );
+};
+
 export default function MyParticipationsScreen() {
   const { profile } = useAuth();
   const [participations, setParticipations] = useState<Participation[]>([]);
@@ -41,7 +59,6 @@ export default function MyParticipationsScreen() {
     if (!profile) return;
     setLoading(true);
     try {
-      // ✅ QUERY ATUALIZADA para buscar os passageiros
       const { data, error } = await supabase
         .from('transfer_participations')
         .select(`
@@ -75,9 +92,6 @@ export default function MyParticipationsScreen() {
     setExpandedCardId(expandedCardId === id ? null : id);
   };
   
-  // Componente de Status permanece o mesmo...
-  const StatusInfo = ({ status }: { status: string }) => { /* ... */ };
-
   if (loading) {
     return <View style={styles.centered}><ActivityIndicator size="large" /></View>;
   }
@@ -101,8 +115,7 @@ export default function MyParticipationsScreen() {
                 <Text style={styles.cardPrice}>Valor Total: R$ {(p.total_price || 0).toFixed(2)}</Text>
               </View>
 
-              {/* ✅ NOVO: Seção Expansível para Detalhes dos Passageiros */}
-              {p.status === 'paid' && (
+              {p.status === 'paid' && p.passengers.length > 0 && (
                 <View style={styles.detailsSection}>
                   <TouchableOpacity style={styles.detailsButton} onPress={() => handleToggleExpand(p.id)}>
                     <Text style={styles.detailsButtonText}>Ver Detalhes</Text>
@@ -135,7 +148,6 @@ export default function MyParticipationsScreen() {
   );
 }
 
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8fafc' },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
@@ -164,8 +176,8 @@ const styles = StyleSheet.create({
   cardBody: { gap: 8, marginBottom: 8 },
   cardText: { fontSize: 14, color: '#475569' },
   cardPrice: { fontSize: 16, fontWeight: 'bold', color: '#1e293b', marginTop: 4 },
-  statusBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, gap: 6 },
-  statusText: { fontSize: 12, fontWeight: 'bold' },
+  statusBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, gap: 6 },
+  statusText: { fontSize: 12, fontWeight: 'bold', color: '#ffffff' },
   detailsSection: { marginTop: 16, borderTopWidth: 1, borderTopColor: '#f1f5f9', paddingTop: 16 },
   detailsButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
   detailsButtonText: { color: '#2563eb', fontSize: 14, fontWeight: '600' },

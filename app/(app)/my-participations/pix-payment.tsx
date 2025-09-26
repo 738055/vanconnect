@@ -4,11 +4,13 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import Toast from 'react-native-toast-message';
 import * as Clipboard from 'expo-clipboard';
 import { Copy, CheckCircle } from 'lucide-react-native';
+import { supabase } from '../../../lib/supabase';
 
 export default function PixPaymentScreen() {
   const router = useRouter();
-  const { pixQrCodeUrl, pixCode, totalPrice } = useLocalSearchParams();
+  const { pixQrCodeUrl, pixCode, totalPrice, transferId, seatsRequested, passengers } = useLocalSearchParams();
   const [copied, setCopied] = React.useState(false);
+  const [isConfirming, setIsConfirming] = React.useState(false);
 
   const handleCopyCode = async () => {
     if (pixCode && typeof pixCode === 'string') {
@@ -22,13 +24,31 @@ export default function PixPaymentScreen() {
     }
   };
 
-  const handleConclude = () => {
-    Toast.show({
-      type: 'info',
-      text1: 'Aguardando Confirmação',
-      text2: 'Você será notificado assim que o pagamento for confirmado.',
-    });
-    router.replace('/(app)/my-participations');
+  const handleConclude = async () => {
+    setIsConfirming(true);
+    try {
+      const { error } = await supabase.functions.invoke('confirm-mock-payment', {
+        body: {
+          transferId: Number(transferId),
+          seatsRequested: Number(seatsRequested),
+          totalPrice: Number(totalPrice),
+          passengers: JSON.parse(passengers as string),
+        }
+      });
+      if (error) throw error;
+
+      Toast.show({
+        type: 'success',
+        text1: 'Reserva Confirmada!',
+        text2: 'O seu pagamento simulado foi processado com sucesso.',
+      });
+      router.replace('/(app)/my-participations');
+
+    } catch (err: any) {
+      Alert.alert('Erro na Confirmação', err.message);
+    } finally {
+      setIsConfirming(false);
+    }
   };
 
   return (
@@ -51,8 +71,12 @@ export default function PixPaymentScreen() {
           <Text style={styles.copyButtonText}>{copied ? 'Copiado!' : 'Copiar Código PIX'}</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.concludeButton} onPress={handleConclude}>
-          <Text style={styles.concludeButtonText}>Já paguei, concluir</Text>
+        <TouchableOpacity style={[styles.concludeButton, isConfirming && { opacity: 0.7 }]} onPress={handleConclude} disabled={isConfirming}>
+          {isConfirming ? (
+            <ActivityIndicator color="#ffffff" />
+          ) : (
+            <Text style={styles.concludeButtonText}>Já paguei, concluir</Text>
+          )}
         </TouchableOpacity>
       </View>
     </SafeAreaView>
