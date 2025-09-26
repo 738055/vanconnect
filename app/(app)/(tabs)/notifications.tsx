@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React from 'react';
 import {
   View,
   Text,
@@ -9,7 +9,7 @@ import {
   ActivityIndicator,
   RefreshControl,
 } from 'react-native';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useNotifications } from '../../../contexts/NotificationContext';
 import { Bell, Inbox } from 'lucide-react-native';
 
@@ -29,10 +29,12 @@ export default function NotificationsScreen() {
   const { notifications, isLoading, refetch, markAsRead } = useNotifications();
 
   const handleNotificationPress = async (notification: Notification) => {
+    // Marca como lido apenas se ainda não foi lido
     if (!notification.read_at) {
       await markAsRead(notification.id);
     }
     
+    // Navega para o transfer se houver um ID nos dados da notificação
     if (notification.data?.transfer_id) {
       router.push(`/(app)/transfer-details/${notification.data.transfer_id}`);
     }
@@ -87,7 +89,7 @@ export default function NotificationsScreen() {
             <View style={styles.emptyState}>
               <Inbox size={48} color="#cbd5e1" />
               <Text style={styles.emptyTitle}>Nenhuma notificação</Text>
-              <Text style={styles.emptyDescription}>Suas novas notificações aparecerão aqui.</Text>
+              <Text style={styles.emptyDescription}>As suas novas notificações aparecerão aqui.</Text>
             </View>
           )}
         </ScrollView>

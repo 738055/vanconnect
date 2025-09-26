@@ -1,17 +1,19 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './AuthContext';
+import * as Notifications from 'expo-notifications';
+import { Platform } from 'react-native';
 
 // Define o formato de uma notificação
 type Notification = {
   id: string;
   created_at: string;
   title: string;
-  body: string; // Corrigido de 'message' para 'body' para corresponder à tabela
+  body: string;
   data: {
     transfer_id?: number;
   } | null;
-  read_at: string | null; // Corrigido para corresponder à tabela e ao script
+  read_at: string | null;
 };
 
 // Define o que o contexto irá fornecer
@@ -35,21 +37,72 @@ const NotificationContext = createContext<NotificationContextType>({
 // Hook customizado para usar o contexto facilmente
 export const useNotifications = () => useContext(NotificationContext);
 
+// Configuração inicial para as notificações (o que acontece quando a notificação chega)
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+  }),
+});
+
 // Componente Provedor que envolve a aplicação
 export const NotificationProvider = ({ children }: { children: React.ReactNode }) => {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [pushToken, setPushToken] = useState<string | null>(null);
+
+  // Função para registar o dispositivo para notificações push
+  const registerForPushNotificationsAsync = async () => {
+    let token;
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync('default', {
+        name: 'default',
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#FF231F7C',
+      });
+    }
+
+    const { status: existingStatus } = await Notifications.getPermissionsAsync();
+    let finalStatus = existingStatus;
+    if (existingStatus !== 'granted') {
+      const { status } = await Notifications.requestPermissionsAsync();
+      finalStatus = status;
+    }
+    if (finalStatus !== 'granted') {
+      alert('Falha ao obter o token para notificações push!');
+      return;
+    }
+    token = (await Notifications.getExpoPushTokenAsync()).data;
+    return token;
+  };
+
+  // Efeito para obter e guardar o push token
+  useEffect(() => {
+    if (user && profile) {
+      registerForPushNotificationsAsync().then(async (token) => {
+        if (token && token !== profile.push_token) {
+          // Salva o novo token no perfil do utilizador
+          await supabase
+            .from('profiles')
+            .update({ push_token: token })
+            .eq('id', user.id);
+          setPushToken(token);
+        }
+      });
+    }
+  }, [user, profile]);
+
 
   const fetchNotifications = useCallback(async () => {
     if (!user) {
       setIsLoading(false);
-      setNotifications([]);
-      setUnreadCount(0);
       return;
     }
-    
+
     setIsLoading(true);
     try {
       const { data, error } = await supabase
@@ -58,25 +111,27 @@ export const NotificationProvider = ({ children }: { children: React.ReactNode }
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      
-      setNotifications(data || []);
-      // Calcula a contagem de não lidas com base em 'read_at'
-      const unread = data?.filter(n => n.read_at === null).length || 0;
-      setUnreadCount(unread);
-    } catch (error) {
-      console.error("Erro ao buscar notificações:", error);
+      if (error) {
+        throw error;
+      }
+
+      if (data) {
+        setNotifications(data);
+        const unread = data.filter(n => !n.read_at).length;
+        setUnreadCount(unread);
+      }
+    } catch (error: any) {
+      console.error('Erro ao buscar notificações:', error.message);
     } finally {
-      setIsLoading(false);
+      setIsLoading(false); // Garante que o loading sempre termine
     }
   }, [user]);
 
-  // Efeito para buscar as notificações na montagem e quando o usuário muda
   useEffect(() => {
     fetchNotifications();
   }, [fetchNotifications]);
 
-  // ✅ NOVO: Efeito para escutar mudanças em tempo real
+  // Efeito para escutar mudanças em tempo real (Realtime)
   useEffect(() => {
     if (!user) return;
 
@@ -84,31 +139,10 @@ export const NotificationProvider = ({ children }: { children: React.ReactNode }
       .channel('notifications_channel')
       .on(
         'postgres_changes',
-        {
-          event: '*', // Escuta INSERT e UPDATE
-          schema: 'public',
-          table: 'notifications',
-          filter: `user_id=eq.${user.id}`,
-        },
+        { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` },
         (payload: any) => {
-          // Quando uma nova notificação é inserida
-          if (payload.eventType === 'INSERT') {
-            const newNotification = payload.new;
-            setNotifications(prev => [newNotification, ...prev]);
-            setUnreadCount(prev => prev + 1);
-          }
-          // Quando uma notificação é atualizada (ex: lida em outro dispositivo)
-          else if (payload.eventType === 'UPDATE') {
-            const updatedNotification = payload.new;
-            setNotifications(prev => 
-              prev.map(n => n.id === updatedNotification.id ? updatedNotification : n)
-            );
-            // Recalcula a contagem caso a notificação lida não esteja na tela
-            // ou se a atualização mudou o status de 'read_at'
-            if (updatedNotification.read_at !== null) {
-                setUnreadCount(prev => (prev > 0 ? prev - 1 : 0));
-            }
-          }
+            // Refetch notifications on any change
+            fetchNotifications();
         }
       )
       .subscribe();
@@ -116,25 +150,24 @@ export const NotificationProvider = ({ children }: { children: React.ReactNode }
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user]);
+  }, [user, fetchNotifications]);
 
   const markAsRead = async (id: string) => {
-    // Atualiza o estado local primeiro para uma resposta de UI imediata
-    setNotifications(prev => 
-      prev.map(n => (n.id === id ? { ...n, read_at: new Date().toISOString() } : n))
-    );
-    setUnreadCount(prev => (prev > 0 ? prev - 1 : 0));
+    const notification = notifications.find(n => n.id === id);
+    // Só atualiza se a notificação existir e não tiver sido lida
+    if (notification && !notification.read_at) {
+        setNotifications(prev =>
+            prev.map(n =>
+                n.id === id ? { ...n, read_at: new Date().toISOString() } : n
+            )
+        );
+        setUnreadCount(prev => (prev > 0 ? prev - 1 : 0));
 
-    // Em seguida, atualiza o banco de dados em segundo plano
-    try {
-      await supabase
-        .from('notifications')
-        .update({ read_at: new Date().toISOString() })
-        .eq('id', id);
-    } catch (error) {
-      console.error("Erro ao marcar notificação como lida:", error);
-      // Opcional: reverter o estado local em caso de erro
-      fetchNotifications();
+        // Atualiza no Supabase em segundo plano
+        await supabase
+            .from('notifications')
+            .update({ read_at: new Date().toISOString() })
+            .eq('id', id);
     }
   };
 

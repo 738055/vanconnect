@@ -24,7 +24,7 @@ serve(async (req) => {
     const { data: { user } } = await supabaseAdmin.auth.getUser(jwt)
     if (!user) throw new Error('Utilizador não autenticado')
 
-    // 1. Cria o registo da participação na sua base de dados
+    // A lógica existente para criar a participação, passageiros e atualizar vagas permanece a mesma.
     const { data: participation, error: participationError } = await supabaseAdmin
       .from('transfer_participations')
       .insert({
@@ -32,14 +32,13 @@ serve(async (req) => {
         participant_id: user.id,
         seats_requested: seatsRequested,
         total_price: totalPrice,
-        status: 'paid', // Simula o pagamento bem-sucedido
-        stripe_payment_intent_id: `mock_${new Date().getTime()}`, // ID simulado
+        status: 'paid',
+        stripe_payment_intent_id: `mock_${new Date().getTime()}`,
       })
       .select('id')
       .single();
     if (participationError) throw new Error(`Erro ao criar participação simulada: ${participationError.message}`)
 
-    // 2. Adiciona os passageiros associados a essa participação
     const passengerData = passengers.map((p: any) => ({
       ...p,
       participation_id: participation.id
@@ -47,12 +46,31 @@ serve(async (req) => {
     const { error: passengerError } = await supabaseAdmin.from('passengers').insert(passengerData);
     if (passengerError) throw new Error(`Erro ao inserir passageiros simulados: ${passengerError.message}`);
 
-    // 3. ✅ CORREÇÃO: Os nomes dos parâmetros foram ajustados para corresponder à base de dados.
     const { error: rpcError } = await supabaseAdmin.rpc('increment_occupied_seats', {
       p_transfer_id: transferId,
       p_seats_to_add: seatsRequested
     });
     if (rpcError) throw new Error(`Erro ao atualizar vagas simuladas: ${rpcError.message}`);
+
+    // ✅ NOVO: Lógica para Enviar a Notificação para o Motorista
+    // 1. Busca os dados do transfer para encontrar o criador e o título
+    const { data: transferData } = await supabaseAdmin
+        .from('transfers')
+        .select('creator_id, transfer_types(title)')
+        .eq('id', transferId)
+        .single();
+    
+    // 2. Chama a nova função 'create-notification' para fazer o trabalho
+    if (transferData) {
+        await supabaseAdmin.functions.invoke('create-notification', {
+            body: {
+                userId: transferData.creator_id,
+                title: 'Nova Reserva Recebida! 🚐',
+                body: `${user.user_metadata.full_name || 'Um passageiro'} reservou ${seatsRequested} vaga(s) no seu transfer "${transferData.transfer_types.title}".`,
+                data: { transfer_id: transferId } // Dados para navegação
+            }
+        });
+    }
 
     return new Response(JSON.stringify({ success: true, participationId: participation.id }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
